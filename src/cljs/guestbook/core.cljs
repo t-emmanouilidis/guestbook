@@ -6,6 +6,14 @@
             [clojure.string :as string]
             [guestbook.validation :refer [validate-message]]))
 
+(rf/reg-event-fx
+  :messages/load
+  (fn [{:keys [db]} _]
+    (GET "/api/messages"
+         {:headers {"Accept" "application/transit+json"}
+          :handler (fn [r] (rf/dispatch [:messages/set (:messages r)]))})
+    {:db (assoc db :messages/loading? true)}))
+
 (rf/reg-event-db
   :form/set-server-errors
   [(rf/path :form/server-errors)]
@@ -67,7 +75,8 @@
 (rf/reg-event-fx
   :app/initialize
   (fn [_ _]
-    {:db {:messages/loading? true}}))
+    {:db       {:messages/loading? true}
+     :dispatch [:messages/load]}))
 
 (rf/reg-event-db
   :messages/set
@@ -91,21 +100,6 @@
   (fn [db [_ message]]
     (update db :messages/list (fn [messages] (conj messages message)))))
 
-(defn get-messages []
-  (GET "/api/messages"
-       {:headers {"Accept" "application/transit+json"}
-        :handler (fn [r] (rf/dispatch [:messages/set (:messages r)]))}))
-
-(defn message-list [messages]
-  (println messages)
-  [:ul.messages
-   (for [{:keys [timestamp message name]} @messages]
-     ^{:key timestamp}
-     [:li
-      [:time (.toLocaleString timestamp)]
-      [:p message]
-      [:p "@" name]])])
-
 (rf/reg-event-fx
   :message/send!
   (fn [{:keys [db]} [_ fields]]
@@ -118,6 +112,25 @@
            :handler       (fn [_] (rf/dispatch [:messages/add (assoc fields :timestamp (js/Date.))]))
            :error-handler (fn [e] (rf/dispatch [:form/set-server-errors (get-in e [:response :errors])]))})
     {:db (dissoc db :form/server-errors)}))
+
+(defn reload-messages-button []
+  (let [loading? (rf/subscribe [:messages/loading?])]
+    [:button.button.is-info.is-fullwidth
+     {:on-click #(rf/dispatch [:messages/load])
+      :disabled @loading?}
+     (if @loading?
+       "Loading messages"
+       "Refresh messages")]))
+
+(defn message-list [messages]
+  (println messages)
+  [:ul.messages
+   (for [{:keys [timestamp message name]} @messages]
+     ^{:key timestamp}
+     [:li
+      [:time (.toLocaleString timestamp)]
+      [:p message]
+      [:p "@" name]])])
 
 (defn errors-component [id]
   (when-let [error @(rf/subscribe [:form/error id])]
@@ -156,6 +169,8 @@
           [:h3 "Messages"]
           [message-list messages]]
          [:div.columns>div.column
+          [reload-messages-button]]
+         [:div.columns>div.column
           [message-form]]]))))
 
 (defn ^:dev/after-load mount-components []
@@ -167,7 +182,6 @@
 (defn init! []
   (.log js/console "Initializing app...")
   (rf/dispatch [:app/initialize])
-  (get-messages)
   (mount-components))
 
 (dom/render [home] (.getElementById js/document "content"))
