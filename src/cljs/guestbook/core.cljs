@@ -119,52 +119,32 @@
            :error-handler (fn [e] (rf/dispatch [:form/set-server-errors (get-in e [:response :errors])]))})
     {:db (dissoc db :form/server-errors)}))
 
-(defn send-message! [fields errors]
-  (if-let [validation-errors (validate-message @fields)]
-    (reset! errors validation-errors)
-    (POST "/api/message"
-          {:format        :json
-           :headers       {"Accept"       "application/transit+json"
-                           "x-csrf-token" (.-value (.getElementById js/document "token"))}
-           :params        @fields
-           :handler       (fn [r]
-                            (.log js/console (str "response:" r))
-                            (rf/dispatch [:messages/add (-> @fields
-                                                            (assoc :timestamp (js/Date.)))])
-                            (reset! fields nil)
-                            (reset! errors nil))
-           :error-handler (fn [e]
-                            (.error js/console (str "error:" e))
-                            (reset! errors (:errors (:response e))))})))
-
-(defn errors-component [errors id]
-  (when-let [error (id @errors)]
+(defn errors-component [id]
+  (when-let [error @(rf/subscribe [:form/error id])]
     [:div.notification.is-danger (string/join error)]))
 
 (defn message-form []
-  (let [fields (r/atom {})
-        errors (r/atom {})]
-    (fn []
-      [:div
-       [errors-component errors :server-error]
-       [:div.field
-        [:label.label {:for :name} "Name"]
-        [errors-component errors :name]
-        [:input.input {:type      :text
-                       :name      :name
-                       :value     (:name @fields)
-                       :on-change (fn [eventObj]
-                                    (swap! fields assoc :name (.-value (.-target eventObj))))}]]
-       [:div.field
-        [:label.label {:for :message} "Message"]
-        [errors-component errors :message]
-        [:textarea.textarea {:name      :message
-                             :value     (:message @fields)
-                             :on-change (fn [eventObj]
-                                          (swap! fields assoc :message (.-value (.-target eventObj))))}]]
-       [:input.button.is-primary {:type     :submit
-                                  :value    "Comment"
-                                  :on-click #(send-message! fields errors)}]])))
+  [:div
+   [errors-component :server-error]
+   [:div.field
+    [:label.label {:for :name} "Name"]
+    [errors-component :name]
+    [:input.input {:type      :text
+                   :name      :name
+                   :value     @(rf/subscribe [:form/field :name])
+                   :on-change (fn [eventObj]
+                                (rf/dispatch [:form/set-field :name (.-value (.-target eventObj))]))}]]
+   [:div.field
+    [:label.label {:for :message} "Message"]
+    [errors-component :message]
+    [:textarea.textarea {:name      :message
+                         :value     @(rf/subscribe [:form/field :message])
+                         :on-change (fn [eventObj]
+                                      (rf/dispatch [:form/set-field :message (.-value (.-target eventObj))]))}]]
+   [:input.button.is-primary {:type     :submit
+                              :disabled @(rf/subscribe [:form/validation-errors?])
+                              :value    "Comment"
+                              :on-click (fn [_] (rf/dispatch [:message/send! @(rf/subscribe [:form/fields])]))}]])
 
 (defn home []
   (let [messages (rf/subscribe [:messages/list])]
