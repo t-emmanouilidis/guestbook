@@ -4,7 +4,16 @@
             [re-frame.core :as rf]
             [ajax.core :refer [GET POST]]
             [clojure.string :as string]
-            [guestbook.validation :refer [validate-message]]))
+            [guestbook.validation :refer [validate-message]]
+            [guestbook.websockets :as ws]
+            [mount.core :as mount]))
+
+(defn handle-ws-response! [response]
+  (if-let [errors (:errors response)]
+    (rf/dispatch [:form/set-server-errors errors])
+    (do
+      (rf/dispatch [:messages/add response])
+      (rf/dispatch [:form/clear-fields response]))))
 
 (rf/reg-event-fx
   :messages/load
@@ -103,14 +112,7 @@
 (rf/reg-event-fx
   :message/send!
   (fn [{:keys [db]} [_ fields]]
-    (POST "/api/message"
-          {:format        :json
-           :headers
-           {"Accept"       "application/transit+json"
-            "x-csrf-token" (.-value (.getElementById js/document "token"))}
-           :params        fields
-           :handler       (fn [_] (rf/dispatch [:messages/add (assoc fields :timestamp (js/Date.))]))
-           :error-handler (fn [e] (rf/dispatch [:form/set-server-errors (get-in e [:response :errors])]))})
+    (ws/send! [:message/create! fields])
     {:db (dissoc db :form/server-errors)}))
 
 (defn reload-messages-button []
@@ -181,7 +183,9 @@
 
 (defn init! []
   (.log js/console "Initializing app...")
+  (mount/start)
   (rf/dispatch [:app/initialize])
+  ;(ws/connect! (str "ws://" (.-host js/location) "/ws") handle-ws-response!)
   (mount-components))
 
 (dom/render [home] (.getElementById js/document "content"))
