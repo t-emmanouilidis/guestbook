@@ -1,25 +1,24 @@
 (ns guestbook.websockets
   (:require-macros [mount.core :refer [defstate]])
-  (:require [cljs.reader :as edn]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             [taoensso.sente :as sente]
-            mount.core))
+            [mount.core]))
 
 (defstate socket
           :start (sente/make-channel-socket!
                    "/ws"
-                   (.-value (.getElementByid js/document "token"))
+                   (.-value (.getElementById js/document "token"))
                    {:type           :auto
                     :wrap-recv-evs? false}))
 
-(defn send! [message]
+(defn send! [& args]
   (if-let [send-fn (:send-fn @socket)]
-    (send-fn message)
+    (apply send-fn args)
     (throw (ex-info "Couldn't send message, channel isn't open!"
-                    {:message message}))))
+                    {:message (first args)}))))
 
 (defmulti handle-message (fn [{:keys [id]} _] id))
-(defmethod handle-message :message/add [_ msg-add-event] (rf/dispatch msg-add-event))
+(defmethod handle-message :messages/add [_ msg-add-event] (rf/dispatch msg-add-event))
 (defmethod handle-message :message/creation-errors [_ [_ response]] (rf/dispatch [:form/set-server-errors (:errors response)]))
 
 (defmethod handle-message :chsk/handshake [{:keys [event]} _] (.log js/console "Connection established: " (pr-str event)))
@@ -36,10 +35,10 @@
           :start (sente/start-chsk-router!
                    (:ch-recv @socket)
                    #'receive-message!)
-          :stop (when-let [stop-fn @channel-router
-                           (stop-fn)]))
+          :stop (when-let [stop-fn @channel-router]
+                  (stop-fn)))
 
-(defonce channel (atom nil))
+;(defonce channel (atom nil))
 
 ;(defn connect! [url receive-handler]
 ;  (if-let [chan (js/WebSocket. url)]
