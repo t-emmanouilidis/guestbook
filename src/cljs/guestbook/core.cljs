@@ -203,24 +203,13 @@
     [errors-component :name]
     [text-input {:attrs   {:name :name}
                  :value   (rf/subscribe [:form/field :name])
-                 :on-save #(rf/dispatch [:form/set-field :name %])}]
-    ;[:input.input {:type      :text
-    ;               :name      :name
-    ;               :value     @(rf/subscribe [:form/field :name])
-    ;               :on-change (fn [eventObj]
-    ;                            (rf/dispatch [:form/set-field :name (.-value (.-target eventObj))]))}]
-    ]
+                 :on-save #(rf/dispatch [:form/set-field :name %])}]]
    [:div.field
     [:label.label {:for :message} "Message"]
     [errors-component :message]
     [textarea-input {:attrs   {:name :message}
                      :value   (rf/subscribe [:form/field :message])
-                     :on-save #(rf/dispatch [:form/set-field :message %])}]
-    ;[:textarea.textarea {:name      :message
-    ;                     :value     @(rf/subscribe [:form/field :message])
-    ;                     :on-change (fn [eventObj]
-    ;                                  (rf/dispatch [:form/set-field :message (.-value (.-target eventObj))]))}]
-    ]
+                     :on-save #(rf/dispatch [:form/set-field :message %])}]]
    [:input.button.is-primary {:type     :submit
                               :disabled @(rf/subscribe [:form/validation-errors?])
                               :value    "Comment"
