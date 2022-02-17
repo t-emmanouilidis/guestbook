@@ -15,13 +15,29 @@
       (rf/dispatch [:messages/add response])
       (rf/dispatch [:form/clear-fields response]))))
 
+(rf/reg-fx
+  :ajax/get
+  (fn [{:keys [url success-event error-event success-path]}]
+    (GET url
+         (cond-> {:headers {"Accept" "application/transit+json"}}
+                 success-event (assoc :handler
+                                      #(rf/dispatch (conj success-event
+                                                          (if success-path
+                                                            (get-in % success-path)
+                                                            %))))
+                 error-event (assoc :error-handler
+                                    #(rf/dispatch (conj error-event %)))))))
+
 (rf/reg-event-fx
   :messages/load
   (fn [{:keys [db]} _]
-    (GET "/api/messages"
-         {:headers {"Accept" "application/transit+json"}
-          :handler (fn [r] (rf/dispatch [:messages/set (:messages r)]))})
-    {:db (assoc db :messages/loading? true)}))
+    ;(GET "/api/messages"
+    ;     {:headers {"Accept" "application/transit+json"}
+    ;      :handler (fn [r] (rf/dispatch [:messages/set (:messages r)]))})
+    {:db       (assoc db :messages/loading? true)
+     :ajax/get {:url           "/api/messages"
+                :success-path  [:messages]
+                :success-event [:messages/set]}}))
 
 (rf/reg-event-db
   :form/set-server-errors
@@ -110,16 +126,51 @@
     (update db :messages/list (fn [messages] (conj messages message)))))
 
 (rf/reg-event-fx
+  :message/send!-called-back
+  (fn [_ [_ {:keys [success errors]}]]
+    (if success
+      {:dispatch [:form/clear-fields]}
+      {:dispatch [:form/set-server-errors errors]})))
+
+(rf/reg-event-fx
   :message/send!
   (fn [{:keys [db]} [_ fields]]
-    (ws/send! [:message/create! fields]
-              10000
-              (fn [{:keys [success errors] :as response}]
-                (.log js/console "Called back: " (pr-str response))
-                (if success
-                  (rf/dispatch [:form/clear-fields])
-                  (rf/dispatch [:form/set-server-errors errors]))))
-    {:db (dissoc db :form/server-errors)}))
+    {:db       (dissoc db :form/server-errors)
+     :ws/send! {:message        [:message/create! fields]
+                :timeout        10000
+                :callback-event [:message/send!-called-back]}}))
+
+(defn text-input [{val   :value
+                   attrs :attrs
+                   :keys [on-save]}]
+  (let [draft (r/atom nil)
+        value (r/track #(or @draft @val ""))]
+    (fn []
+      [:input.input
+       (merge attrs
+              {:type      :text
+               :on-focus  #(reset! draft (or @val ""))
+               :on-blur   (fn []
+                            (on-save (or @draft ""))
+                            (reset! draft nil))
+               :on-change (fn [eventObj]
+                            (reset! draft (.-value (.-target eventObj))))
+               :value     @value})])))
+
+(defn textarea-input [{val   :value
+                       attrs :attrs
+                       :keys [on-save]}]
+  (let [draft (r/atom nil)
+        value (r/track #(or @draft @val ""))]
+    (fn []
+      [:textarea.textarea
+       (merge attrs
+              {:on-focus  #(reset! draft (or @val ""))
+               :on-blur   (fn []
+                            (on-save (or @draft ""))
+                            (reset! draft nil))
+               :on-change #(reset! draft (.. % -target -value))
+               :value     @value})])))
 
 (defn reload-messages-button []
   (let [loading? (rf/subscribe [:messages/loading?])]
@@ -127,7 +178,7 @@
      {:on-click #(rf/dispatch [:messages/load])
       :disabled @loading?}
      (if @loading?
-       "Loading messages"
+       "Loading messages from server"
        "Refresh messages")]))
 
 (defn message-list [messages]
@@ -150,18 +201,26 @@
    [:div.field
     [:label.label {:for :name} "Name"]
     [errors-component :name]
-    [:input.input {:type      :text
-                   :name      :name
-                   :value     @(rf/subscribe [:form/field :name])
-                   :on-change (fn [eventObj]
-                                (rf/dispatch [:form/set-field :name (.-value (.-target eventObj))]))}]]
+    [text-input {:attrs   {:name :name}
+                 :value   (rf/subscribe [:form/field :name])
+                 :on-save #(rf/dispatch [:form/set-field :name %])}]
+    ;[:input.input {:type      :text
+    ;               :name      :name
+    ;               :value     @(rf/subscribe [:form/field :name])
+    ;               :on-change (fn [eventObj]
+    ;                            (rf/dispatch [:form/set-field :name (.-value (.-target eventObj))]))}]
+    ]
    [:div.field
     [:label.label {:for :message} "Message"]
     [errors-component :message]
-    [:textarea.textarea {:name      :message
-                         :value     @(rf/subscribe [:form/field :message])
-                         :on-change (fn [eventObj]
-                                      (rf/dispatch [:form/set-field :message (.-value (.-target eventObj))]))}]]
+    [textarea-input {:attrs   {:name :message}
+                     :value   (rf/subscribe [:form/field :message])
+                     :on-save #(rf/dispatch [:form/set-field :message %])}]
+    ;[:textarea.textarea {:name      :message
+    ;                     :value     @(rf/subscribe [:form/field :message])
+    ;                     :on-change (fn [eventObj]
+    ;                                  (rf/dispatch [:form/set-field :message (.-value (.-target eventObj))]))}]
+    ]
    [:input.button.is-primary {:type     :submit
                               :disabled @(rf/subscribe [:form/validation-errors?])
                               :value    "Comment"
