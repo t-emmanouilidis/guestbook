@@ -39,7 +39,8 @@
                  [org.clojure/google-closure-library "0.0-20191016-6ae1f72f"]
                  [thheller/shadow-cljs "2.11.14" :scope "provided"]
                  [com.taoensso/sente "1.16.0"]
-                 [org.postgresql/postgresql "42.2.18"]]
+                 [org.postgresql/postgresql "42.2.18"]
+                 [buddy "2.0.0"]]
 
   :min-lein-version "2.0.0"
 

@@ -4,16 +4,18 @@
             [taoensso.sente :as sente]
             [taoensso.sente.server-adapters.http-kit :refer [get-sch-adapter]]
             [guestbook.messages :as msg]
-            [guestbook.middleware :as middleware]))
+            [guestbook.middleware :as middleware]
+            [guestbook.session :as session]
+            [guestbook.auth :as auth]
+            [guestbook.auth.ws :refer [authorized?]]))
 
 (defstate socket
-  :start (sente/make-channel-socket!
-          (get-sch-adapter)
-          {:user-id-fn (fn [ring-req]
-                         (get-in ring-req [:params :client-id]))}))
+          :start (sente/make-channel-socket!
+                   (get-sch-adapter)
+                   {:user-id-fn (fn [ring-req]
+                                  (get-in ring-req [:params :client-id]))}))
 
 (defn send! [uid message]
-  (println "Sending message: " message)
   ((:send-fn socket) uid message))
 
 (defmulti handle-message (fn [{:keys [id]}] id))
@@ -21,13 +23,14 @@
 (defmethod handle-message :default [{:keys [id]}]
   (log/debug "Received unrecognized websocket event type: " id)
   {:error (str "Unrecognized websocket event type: " (pr-str id))
-   :id id})
+   :id    id})
 
 (defmethod handle-message :message/create!
-  [{:keys [?data uid] :as message}]
+  [{:keys [?data session]}]
   (let [response (try
-                   (msg/save-message! ?data)
-                   (assoc ?data :timestamp (java.util.Date.))
+                   (-> (:identity session)
+                       (msg/save-message!,,, ?data)
+                       (assoc,,, :timestamp (java.util.Date.)))
                    (catch Exception e
                      (let [{id     :guestbook/error-id
                             errors :errors} (ex-data e)]
@@ -44,51 +47,33 @@
           (send! uid [:messages/add response]))
         {:success true}))))
 
-(defn receive-message! [{:keys [id ?reply-fn] :as message}]
-  (log/debug "Got message with id: " id)
-  (let [reply-fn (or ?reply-fn (fn [_]))]
-    (when-some [response (handle-message message)]
-      (reply-fn response))))
+(defn receive-message! [{:keys [id ?reply-fn ring-req] :as message}]
+  (case id
+    :chsk/bad-package (log/debug "Bad package:\n" message)
+    :chsk/bad-event (log/debug "Bad event:\n" message)
+    :chsk/uidport-open (log/trace (:event message))
+    :chsk/uidport-close (log/trace (:event message))
+    :chsk/ws-ping nil
+    ;; ELSE
+    (let [reply-fn (or ?reply-fn (fn [_]))
+          session (session/read-session ring-req)
+          message (-> message
+                      (assoc,,, :session session))]
+      (log/debug "Got a message with id: " id)
+      (if (authorized? auth/roles message)
+        (when-some [response (handle-message message)]
+          (reply-fn response))
+        (do
+          (log/info "Unauthorized message: " id)
+          (reply-fn {:message "You are not authorized to perform this action!"
+                     :errors  {:unauthorized true}}))))))
 
 (defstate channel-router
-  :start (sente/start-chsk-router!
-          (:ch-recv socket)
-          #'receive-message!)
-  :stop (when-let [stop-fn channel-router]
-          (stop-fn)))
-
-;(defonce channels (atom #{}))
-
-;(defn connect! [channel]
-;  (log/info "Channel opened")
-;  (swap! channels conj channel))
-
-;(defn disconnect! [channel status]
-;  (log/info "Channel closed: " status)
-;  (swap! channels disj channel))
-
-;(defn handle-message! [channel ws-message]
-;  (let [message (edn/read-string ws-message)
-;        response (try
-;                   (msg/save-message! message)
-;                   (assoc message :timestamp (Date.))
-;                   (catch Exception e
-;                     (let [{id     :guestbook/error-id
-;                            errors :errors} (ex-data e)]
-;                       (case id
-;                         :validation
-;                         {:errors errors}
-;                         {:errors {:server-error ["Failed to save message!"]}}))))]
-;    (if (:errors response)
-;      (http-kit/send! channel (pr-str response))
-;      (doseq [channel @channels]
-;        (http-kit/send! channel (pr-str response))))))
-
-;(defn handler [request]
-;  (http-kit/with-channel request channel
-;                         (connect! channel)
-;                         (http-kit/on-close channel (partial disconnect! channel))
-;                         (http-kit/on-receive channel (partial handle-message! channel))))
+          :start (sente/start-chsk-router!
+                   (:ch-recv socket)
+                   #'receive-message!)
+          :stop (when-let [stop-fn channel-router]
+                  (stop-fn)))
 
 (defn websocket-routes []
   ["/ws"
