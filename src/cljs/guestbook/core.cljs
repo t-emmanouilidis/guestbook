@@ -6,7 +6,21 @@
             [clojure.string :as string]
             [guestbook.validation :refer [validate-message]]
             [guestbook.websockets :as ws]
-            [mount.core :as mount]))
+            [mount.core :as mount]
+            [reitit.coercion.spec :as reitit-spec]
+            [reitit.frontend :as rtf]
+            [reitit.frontend.easy :as rtfe]))
+
+(rf/reg-event-db
+  :router/navigated
+  (fn [db [_ new-match]]
+    (.log js/console (str "New match: " new-match))
+    (assoc db :router/current-route new-match)))
+
+(rf/reg-sub
+  :router/current-route
+  (fn [db _]
+    (:router/current-route db)))
 
 (rf/reg-fx
   :ws/send!
@@ -254,7 +268,7 @@
       [:p " - " name
        " <"
        (if author
-         (str "@" author)
+         [:a {:href (str "/user/" author)} (str "@" author)]
          [:span.is-italic "account not found"])
        ">"]])])
 
@@ -284,19 +298,6 @@
                               :disabled @(rf/subscribe [:form/validation-errors?])
                               :value    "Comment"
                               :on-click (fn [_] (rf/dispatch [:message/send! @(rf/subscribe [:form/fields])]))}]])
-
-(defn home []
-  (fn []
-    (if @(rf/subscribe [:messages/loading?])
-      [:div>div.row>div.span12>h3 "Loading Messages..."]
-      [:div.content>div.columns.is-centered>div.column.is-two-thirds
-       [:div.columns>div.column
-        [:h3 "Messages"]
-        [message-list]]
-       [:div.columns>div.column
-        [reload-messages-button]]
-       [:div.columns>div.column
-        [message-form]]])))
 
 (defn modal-card [id title body footer]
   [:div.modal
@@ -452,16 +453,74 @@
               [login-button]
               [register-button]])]]]]])))
 
+(defn home []
+  (fn []
+    (if @(rf/subscribe [:messages/loading?])
+      [:div>div.row>div.span12>h3 "Loading Messages..."]
+      [:div.content>div.columns.is-centered>div.column.is-two-thirds
+       [:div.columns>div.column
+        [:h3 "Messages"]
+        [message-list]]
+       [:div.columns>div.column
+        [reload-messages-button]]
+       [:div.columns>div.column
+        (case @(rf/subscribe [:auth/user-state])
+          :loading
+          [:div {:style {:width "5em"}}
+           [:progress.progress.is-dark.is-small {:max 100} "30%"]]
+          :authenticated
+          [message-form]
+          :anonymous
+          [:div.notification.is-clearfix
+           [:span "Log in or create an account to post a message!"]
+           [:div.buttons.is-pulled-right
+            [login-button]
+            [register-button]]])]])))
+
+(defn author []
+  [:div
+   [:p "This page hasn't been implemented yet!"]
+   [:a {:href "/"} "Return home"]])
+
+(def routes
+  ["/"
+   ["" 
+    {:name ::home
+     :view home}]
+   ["user/:user"
+    {:name ::author
+     :view author}]])
+
+(def router
+  (rtf/router
+    routes
+    {:data {:coercion reitit-spec/coercion}}))
+
+(defn init-routes! []
+  (rtfe/start!
+    router
+    (fn [new-match _]
+      (when new-match
+        (rf/dispatch [:router/navigated new-match])))
+    {:use-fragment false}))
+
+(defn page [{{:keys [view name]} :data
+             path :path}]
+  [:section.section>div.container
+   (if view
+     [view]
+     [:div "No view specified for route: " name " (" path ")"])])
+
 (defn app []
-  [:div.app
-   [navbar]
-   [:section.section
-    [:div.container
-     [home]]]])
+  (let [current-route @(rf/subscribe [:router/current-route])]
+    [:div.app
+     [navbar]
+     [page current-route]]))
 
 (defn ^:dev/after-load mount-components []
   (rf/clear-subscription-cache!)
   (.log js/console "Mounting components...")
+  (init-routes!)
   (dom/render [#'app] (.getElementById js/document "content"))
   (.log js/console "Components mounted!"))
 

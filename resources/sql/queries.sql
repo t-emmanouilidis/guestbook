@@ -18,3 +18,8 @@ VALUES (:login, :password);
 -- :doc selects a user for authentication
 SELECT * FROM users
 WHERE login = :login;
+
+-- :name get-messages-by-author :? :*
+-- :doc returns all messages by given author
+SELECT * from posts
+WHERE author = :author;

@@ -13,8 +13,7 @@
             [guestbook.middleware.formats :as formats]
             [guestbook.auth :as auth]
             [spec-tools.data-spec :as ds]
-            [guestbook.auth.ring :refer [wrap-authorized get-roles-from-match]]
-            [clojure.tools.logging :as log]))
+            [guestbook.auth.ring :as custom-ring-auth]))
 
 (defn message-list [_] (response/ok (msg/message-list)))
 
@@ -42,19 +41,7 @@
                  coercion/coerce-request-middleware
                  coercion/coerce-response-middleware
                  multipart/multipart-middleware
-                 (fn [handler]
-                   (wrap-authorized
-                     handler
-                     (fn handle-unauthorized [req]
-                       (let [route-roles (get-roles-from-match req)]
-                         (log/debug "Roles for route: " (:uri req) route-roles)
-                         (log/debug "User is unauthorized!"
-                                    (-> req
-                                        :session
-                                        :identity
-                                        :roles))
-                         (response/forbidden
-                           {:message (str "User must have one of the following roles: " route-roles)})))))]
+                 custom-ring-auth/mw]
     :muuntaja   formats/instance
     :coercion   spec-coercion/coercion
     :swagger    {:id ::api}}
@@ -63,17 +50,33 @@
     ["/swagger.json" {:get (swagger/create-swagger-handler)}]
     ["/swagger-ui*" {:get (swagger-ui/create-swagger-ui-handler {:url "/api/swagger.json"})}]]
    ["/messages"
-    {::auth/roles (auth/roles :messages/list)
-     :get
-     {:responses
-      {200
-       {:body
-        {:messages
-         [{:id        pos-int?
-           :name      string?
-           :message   string?
-           :timestamp inst?}]}}}
-      :handler message-list}}]
+    {::auth/roles (auth/roles :messages/list)}
+    ["" {:get
+         {:responses
+          {200
+           {:body
+            {:messages
+             [{:id        pos-int?
+               :name      string?
+               :message   string?
+               :author    string?
+               :timestamp inst?}]}}}
+          :handler message-list}}]
+    ["/by/:author"
+     {:get
+      {:parameters {:path {:author string?}}
+       :responses
+       {200
+        {:body
+         {:messages
+          [{:id        pos-int?
+            :name      string?
+            :message   string?
+            :author    string?
+            :timestamp inst?}]}}}
+       :handler
+       (fn [{{{:keys [author]} :path} :parameters}]
+         (response/ok (msg/messages-by-author author)))}}]]
    ["/message"
     {::auth/roles (auth/roles :message/create!)
      :post
