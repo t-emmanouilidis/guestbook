@@ -17,6 +17,13 @@
     (throw (ex-info "Couldn't send message, channel isn't open!"
                     {:message (first args)}))))
 
+(rf/reg-fx
+  :ws/send!
+  (fn [{:keys [message timeout callback-event] :or {timeout 30000}}]
+    (if callback-event
+      (send! message timeout (fn [r] (rf/dispatch (conj callback-event r))))
+      (send! message timeout))))
+
 (defmulti handle-message (fn [{:keys [id]} _] id))
 (defmethod handle-message :messages/add [_ msg-add-event] (rf/dispatch msg-add-event))
 (defmethod handle-message :message/creation-errors [_ [_ response]] (rf/dispatch [:form/set-server-errors (:errors response)]))
