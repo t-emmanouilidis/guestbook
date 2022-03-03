@@ -23,3 +23,5 @@ profiles.clj
 .clj-kondo/
 **/*.db*.db
 **/*.iml
+
+**/.DS_Store

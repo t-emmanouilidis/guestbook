@@ -17,12 +17,12 @@
       (log/error "roles: " roles " is empty for route: " (:uri req))
       false)))
 
-(defn- get-roles-from-match [req]
+(defn get-roles-from-match [req]
   (-> req
       ring/get-match
       (get-in,,, [:data ::auth/roles] #{})))
 
-(defn- wrap-authorized [handler unauthorized-handler]
+(defn wrap-authorized [handler unauthorized-handler]
   (fn [req]
     (if (authorized? (get-roles-from-match req) req)
       (handler req)

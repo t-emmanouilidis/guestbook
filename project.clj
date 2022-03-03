@@ -2,7 +2,6 @@
 
   :description "FIXME: write description"
   :url "http://example.com/FIXME"
-
   :dependencies [[ch.qos.logback/logback-classic "1.2.3"]
                  [cheshire "5.10.0"]
                  [clojure.java-time "0.3.2"]
@@ -40,10 +39,11 @@
                  [thheller/shadow-cljs "2.11.14" :scope "provided"]
                  [com.taoensso/sente "1.16.0"]
                  [org.postgresql/postgresql "42.2.18"]
-                 [buddy "2.0.0"]]
+                 [buddy "2.0.0"]
+                 [metosin/jsonista "0.3.0"]
+                 [markdown-clj "1.10.5"]]
 
   :min-lein-version "2.0.0"
-
   :source-paths ["src/clj" "src/cljc" "src/cljs"]
   :test-paths ["test/clj"]
   :resource-paths ["resources" "target/cljsbuild"]

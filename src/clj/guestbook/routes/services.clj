@@ -1,6 +1,7 @@
 (ns guestbook.routes.services
   (:require [guestbook.messages :as msg]
             [guestbook.middleware :as middleware]
+            [guestbook.db.core :as db]
             [ring.util.http-response :as response]
             [reitit.swagger :as swagger]
             [reitit.swagger-ui :as swagger-ui]
@@ -13,9 +14,30 @@
             [guestbook.middleware.formats :as formats]
             [guestbook.auth :as auth]
             [spec-tools.data-spec :as ds]
-            [guestbook.auth.ring :as custom-ring-auth]))
+            [guestbook.author :as author]
+            [clojure.tools.logging :as log]
+            [guestbook.auth.ring :refer [wrap-authorized get-roles-from-match]]
+            [guestbook.session :as session]
+            [clojure.java.io :as io]
+            [guestbook.media :as media]
+            [clojure.spec.alpha :as s]
+            [clojure.string :as string])
+  (:import (clojure.lang ExceptionInfo)))
 
-(defn message-list [_] (response/ok (msg/message-list)))
+(defn message-list [_]
+  (response/ok (msg/message-list)))
+
+(defn doLogin [req]
+  (let [{session                          :session
+         {{:keys [login password]} :body} :parameters} req]
+    (log/debug (str "login: " login ", password: " password))
+    (if-some [user (auth/authenticate-user login password)]
+      (let [newSession (assoc session :identity user)]
+        ;(session/write-session req newSession)
+        (->
+          (response/ok {:identity user})
+          (assoc :session newSession)))
+      (response/unauthorized {:message "Incorrect login or password."}))))
 
 (defn save-message! [{{params :body}     :parameters
                       {:keys [identity]} :session}]
@@ -41,7 +63,19 @@
                  coercion/coerce-request-middleware
                  coercion/coerce-response-middleware
                  multipart/multipart-middleware
-                 custom-ring-auth/mw]
+                 (fn [handler]
+                   (wrap-authorized
+                     handler
+                     (fn handle-unauthorized [req]
+                       (let [route-roles (get-roles-from-match req)]
+                         (log/debug "Roles for route: " (:uri req) route-roles)
+                         (log/debug "User is unauthorized!"
+                                    (-> req
+                                        :session
+                                        :identity
+                                        :roles))
+                         (response/forbidden
+                           {:message (str "User must have one of the following roles: " route-roles)})))))]
     :muuntaja   formats/instance
     :coercion   spec-coercion/coercion
     :swagger    {:id ::api}}
@@ -59,8 +93,9 @@
              [{:id        pos-int?
                :name      string?
                :message   string?
-               :author    string?
-               :timestamp inst?}]}}}
+               :timestamp inst?
+               :author    (ds/maybe string?)
+               :avatar    (ds/maybe string?)}]}}}
           :handler message-list}}]
     ["/by/:author"
      {:get
@@ -72,23 +107,40 @@
           [{:id        pos-int?
             :name      string?
             :message   string?
-            :author    string?
-            :timestamp inst?}]}}}
+            :timestamp inst?
+            :author    (ds/maybe string?)
+            :avatar    (ds/maybe string?)}]}}}
        :handler
        (fn [{{{:keys [author]} :path} :parameters}]
          (response/ok (msg/messages-by-author author)))}}]]
    ["/message"
-    {::auth/roles (auth/roles :message/create!)
-     :post
-     {:parameters
-      {:body
-       {:name    string?
-        :message string?}}
-      :responses
-      {200 {:body map?}
-       400 {:body map?}
-       500 {:errors map?}}
-      :handler save-message!}}]
+    ["/:post-id"
+     {::auth/roles (auth/roles :message/get)
+      :get
+      {:parameters
+       {:path
+        {:post-id pos-int?}}
+       :responses
+       {200 {:message map?}
+        403 {:message string?}
+        404 {:message string?}
+        500 {:message string?}}
+       :handler
+       (fn [{{{:keys [post-id]} :path} :parameters}]
+         (if-some [post (msg/get-post post-id)]
+           (response/ok {:message post})
+           (response/not-found {:message "Post not found"})))}}]
+    [""
+     {::auth/roles (auth/roles :message/create!)
+      :post
+      {:parameters
+       {:body
+        {:name string?}}
+       :responses
+       {200 {:body map?}
+        400 {:body map?}
+        500 {:errors map?}}
+       :handler save-message!}}]]
    ["/login"
     {::auth/roles (auth/roles :auth/login)
      :post
@@ -105,14 +157,7 @@
        :401
        {:body
         {:message string?}}}
-      :handler
-      (fn [{session                          :session
-            {{:keys [login password]} :body} :parameters}]
-        (if-some [user (auth/authenticate-user login password)]
-          (->
-            (response/ok {:identity user})
-            (assoc,,, :session (assoc session :identity user)))
-          (response/unauthorized {:message "Incorrect login or password."})))}}]
+      :handler doLogin}}]
    ["/register"
     {::auth/roles (auth/roles :account/register)
      :post
@@ -140,7 +185,7 @@
             (auth/create-user! login password)
             (response/ok
               {:message "User registration successful. Please log in."})
-            (catch clojure.lang.ExceptionInfo e
+            (catch ExceptionInfo e
               (if (= (:guestbook/error-id (ex-data e)) ::auth/duplicate-user)
                 (response/conflict
                   {:message "Registration failed! User with login already exists!"})
@@ -163,8 +208,156 @@
          {:identity
           (ds/maybe
             {:login      string?
-             :created_at inst?})}}}}
+             :created_at inst?
+             :profile    map?})}}}}
       :handler
       (fn [{{:keys [identity]} :session}]
-        (let [toReturn (select-keys identity [:login :created_at])]
-          (response/ok {:session {:identity (not-empty toReturn)}})))}}]])
+        (let [toReturn (select-keys identity [:login :created_at :profile])]
+          (response/ok {:session {:identity (not-empty toReturn)}})))}}]
+   ["/author/:login"
+    {::auth/roles (auth/roles :author/get)
+     :get
+     {:parameters
+      {:path {:login string?}}
+      :responses
+      {200
+       {:body map?}
+       500
+       {:errors map?}}
+      :handler
+      (fn [{{{:keys [login]} :path} :parameters}]
+        (response/ok (author/get-author login)))}}]
+   ["/my-account"
+    ["/delete-account"
+     {::auth/roles (auth/roles :account/set-profile!)
+      :post
+      {:parameters
+       {:body {:login    string?
+               :password string?}}
+       :handler
+       (fn [{{{:keys [login password]} :body} :parameters
+             {{user :login} :identity}        :session
+             :as                              req}]
+         (if (not= login user)
+           (response/bad-request
+             {:message "Login must match the current user!"})
+           (try
+             (auth/delete-account! user password)
+             (-> (response/ok)
+                 (assoc :session
+                        (select-keys
+                          (:session req)
+                          [:ring.middleware.anti-forgery/anti-forgery-token])))
+             (catch ExceptionInfo e
+               (if (= (:guestbook/error-id (ex-data e)) ::auth/authentication-failure)
+                 (response/unauthorized {:error   :incorrect-password
+                                         :message "Password is incorrect, please try again!"})
+                 (throw e))))))}}]
+    ["/change-password"
+     {::auth/roles (auth/roles :account/set-profile!)
+      :post
+      {:parameters
+       {:body
+        {:old-password     string?
+         :new-password     string?
+         :confirm-password string?}}
+       :handler
+       (fn [{{{:keys [old-password new-password :confirm-password]} :body} :parameters
+             {{:keys [login]} :identity}                                   :session}]
+         (if (not= new-password :confirm-password)
+           (response/bad-request
+             {:error   :mismatch
+              :message "Password and confirm do not match!"})
+           (try
+             (auth/change-password! login old-password new-password)
+             (response/ok {:success true})
+             (catch ExceptionInfo e
+               (if (= (:guestbook/error-id (ex-data e)) ::auth/authentication-failure)
+                 (response/unauthorized
+                   {:error   :incorrect-password
+                    :message "Old password is incorrect, please try again"})
+                 (throw e))))))}}]
+    ["/set-profile"
+     {::auth/roles (auth/roles :account/set-profile!)
+      :post
+      {:parameters
+       {:body
+        {:profile map?}}
+       :responses
+       {200
+        {:body map?}
+        500
+        {:errors map?}}
+       :handler
+       (fn [{{{:keys [profile]} :body}   :parameters
+             {{:keys [login]} :identity} :session}]
+         (try
+           (let [identity (author/set-author-profile login profile)]
+             (update (response/ok {:success true})
+                     :session
+                     assoc :identity identity))
+           (catch Exception e
+             (log/error e)
+             (response/internal-server-error
+               {:errors {:server-error ["Failed to set profile!"]}}))))}}]
+    ["/media/upload"
+     {::auth/roles (auth/roles :media/upload)
+      :post
+      {:parameters
+       {:multipart (s/map-of keyword? multipart/temp-file-part)}
+       :handler
+       (fn [{{multipart-items :multipart} :parameters
+             {{:keys [login]} :identity}  :session}]
+         (response/ok
+           (reduce-kv
+             (fn [acc name {:keys [size content-type] :as file-part}]
+               (cond
+                 (> size (* 5 1024 1024))
+                 (do
+                   (log/error "File " name " exceeds maximum size of 5 mgbs (size: " size ")")
+                   (update acc :failed-uploads (fnil conj []) name))
+                 (re-matches #"image/.*" content-type)
+                 (-> acc
+                     (update :files-uploaded conj name)
+                     (assoc name
+                            (str "/api/media/"
+                                 (cond
+                                   (= name :avatar)
+                                   (media/insert-image-returning-name
+                                     (assoc file-part :filename (str login "_avatar.png"))
+                                     {:width  128
+                                      :height 128
+                                      :owner  login})
+                                   (= name :banner)
+                                   (media/insert-image-returning-name
+                                     (assoc file-part :filename (str (:login identity) "_banner.png"))
+                                     {:width  1200
+                                      :height 400
+                                      :owner  (:login identity)})
+                                   :else
+                                   (media/insert-image-returning-name
+                                     (update
+                                       file-part
+                                       :filename
+                                       string/replace #"\.[^\.]+$" ".png")
+                                     {:max-width  800
+                                      :max-height 2000
+                                      :owner      (:login identity)})))))
+                 :else
+                 (do
+                   (log/error "Unsupported file type " content-type " for file " name)
+                   (update acc :failed-uploads (fnil conj []) name))))
+             {:files-uploaded []}
+             multipart-items)))}}]]
+   ["/media/:name"
+    {::auth/roles (auth/roles :media/get)
+     :get
+     {:parameters
+      {:path {:name string?}}
+      :handler
+      (fn [{{{:keys [name]} :path} :parameters}]
+        (if-let [{:keys [data type]} (db/get-file {:name name})]
+          (-> (io/input-stream data)
+              (response/ok)
+              (response/content-type type))
+          (response/not-found)))}}]])
