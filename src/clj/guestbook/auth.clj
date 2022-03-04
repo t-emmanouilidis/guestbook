@@ -15,7 +15,8 @@
    :account/set-profile! #{:authenticated}
    :media/get            #{:any}
    :media/upload         #{:authenticated}
-   :message/get          #{:any}})
+   :message/get          #{:any}
+   :message/boost!       #{:authenticated}})
 
 (defn create-user! [login password]
   (jdbc/with-transaction [t-conn db/*db*]

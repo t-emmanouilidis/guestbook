@@ -47,6 +47,23 @@
           (send! uid [:messages/add response]))
         {:success true}))))
 
+(defmethod handle-message :message/boost!
+  [{:keys [?data session]}]
+  (log/debug "Boost data: " ?data)
+  (let [response (try
+                   (msg/boost-post (:login (:identity session)) (:id ?data) (:poster ?data))
+                   (catch Exception e
+                     {:errors
+                      {:server-error ["Failed to boost post!"]}}))]
+    (if (:errors response)
+      (do
+        (log/error "Failed to boost message: " ?data)
+        response)
+      (do
+        (doseq [uid (:any @(:connected-uids socket))]
+          (send! uid [:messages/add response]))
+        {:success true}))))
+
 (defn receive-message! [{:keys [id ?reply-fn ring-req] :as message}]
   (case id
     :chsk/bad-package (log/debug "Bad package:\n" message)
@@ -57,11 +74,10 @@
     ;; ELSE
     (let [reply-fn (or ?reply-fn (fn [_]))
           session (session/read-session ring-req)
-          message (-> message
-                      (assoc :session session))]
-      (log/debug (str "ring-req: " ring-req))
+          message (-> message (assoc :session session))]
+      (log/debug (str "Ring-Req: " ring-req))
       (log/debug (str "Session: " session))
-      (log/debug "Got a message with id: " id)
+      (log/debug "Got a message with ID: " id)
       (if (authorized? auth/roles message)
         (when-some [response (handle-message message)]
           (reply-fn response))

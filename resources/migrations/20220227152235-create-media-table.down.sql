@@ -1,1 +1,1 @@
-DROP TABLE media;
+DROP TABLE if EXISTS media;

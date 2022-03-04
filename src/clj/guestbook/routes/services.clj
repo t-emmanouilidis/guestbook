@@ -32,11 +32,13 @@
          {{:keys [login password]} :body} :parameters} req]
     (log/debug (str "login: " login ", password: " password))
     (if-some [user (auth/authenticate-user login password)]
-      (let [newSession (assoc session :identity user)]
-        ;(session/write-session req newSession)
+      (let [session (or session {})
+            new-session (assoc session :identity user)]
+        (log/debug "New session: " new-session)
+        (session/write-session req new-session)
         (->
           (response/ok {:identity user})
-          (assoc :session newSession)))
+          (assoc :session new-session)))
       (response/unauthorized {:message "Incorrect login or password."}))))
 
 (defn save-message! [{{params :body}     :parameters
@@ -84,19 +86,25 @@
     ["/swagger.json" {:get (swagger/create-swagger-handler)}]
     ["/swagger-ui*" {:get (swagger-ui/create-swagger-ui-handler {:url "/api/swagger.json"})}]]
    ["/messages"
-    {::auth/roles (auth/roles :messages/list)}
-    ["" {:get
-         {:responses
-          {200
-           {:body
-            {:messages
-             [{:id        pos-int?
-               :name      string?
-               :message   string?
-               :timestamp inst?
-               :author    (ds/maybe string?)
-               :avatar    (ds/maybe string?)}]}}}
-          :handler message-list}}]
+    {::auth/roles (auth/roles :messages/list)
+     :parameters  {:query {(ds/opt :boosts) boolean?}}}
+    [""
+     {:get
+      {:responses
+       {200
+        {:body
+         {:messages
+          [{:id        pos-int?
+            :name      string?
+            :message   string?
+            :timestamp inst?
+            :author    (ds/maybe string?)
+            :avatar    (ds/maybe string?)}]}}}
+       :handler
+       (fn [{{{:keys [boosts] :or {boosts true}} :query} :parameters}]
+         (response/ok (if boosts
+                        (msg/timeline)
+                        (msg/message-list))))}}]
     ["/by/:author"
      {:get
       {:parameters {:path {:author string?}}
@@ -111,31 +119,54 @@
             :author    (ds/maybe string?)
             :avatar    (ds/maybe string?)}]}}}
        :handler
-       (fn [{{{:keys [author]} :path} :parameters}]
-         (response/ok (msg/messages-by-author author)))}}]]
+       (fn [{{{:keys [author]}                   :path
+              {:keys [boosts] :or {boosts true}} :query} :parameters}]
+         (response/ok (if boosts
+                        (msg/timeline-for-poster author)
+                        (msg/messages-by-author author))))}}]]
    ["/message"
     ["/:post-id"
-     {::auth/roles (auth/roles :message/get)
-      :get
-      {:parameters
-       {:path
-        {:post-id pos-int?}}
-       :responses
-       {200 {:message map?}
-        403 {:message string?}
-        404 {:message string?}
-        500 {:message string?}}
-       :handler
-       (fn [{{{:keys [post-id]} :path} :parameters}]
-         (if-some [post (msg/get-post post-id)]
-           (response/ok {:message post})
-           (response/not-found {:message "Post not found"})))}}]
+     {:parameters
+      {:path
+       {:post-id pos-int?}}}
+     [""
+      {::auth/roles (auth/roles :message/get)
+       :get
+       {:responses
+        {200 {:message map?}
+         403 {:message string?}
+         404 {:message string?}
+         500 {:message string?}}
+        :handler
+        (fn [{{{:keys [post-id]} :path} :parameters}]
+          (if-some [post (msg/get-post post-id)]
+            (response/ok {:message post})
+            (response/not-found {:message "Post not found"})))}}]
+     ["/boost"
+      {::auth/roles (auth/roles :message/boost!)
+       :post
+       {:parameters {:body {:poster (ds/maybe string?)}}
+        :responses
+        {200 {:body map?}
+         400 {:message string?}}
+        :handler
+        (fn [{{{:keys [post-id]} :path
+               {:keys [poster]}  :body}   :parameters
+              {{:keys [login]} :identity} :session}]
+          ((try
+             (let [post (msg/boost-post login post-id poster)]
+               (response/ok {:status :ok
+                             :post   post}))
+             (catch Exception e
+               (response/bad-request
+                 {:message (str "Could not boost post with id " post-id " as " login)})))))}}]]
     [""
      {::auth/roles (auth/roles :message/create!)
       :post
       {:parameters
        {:body
-        {:name string?}}
+        {:message         string?
+         (ds/opt :parent) (ds/maybe int?)}}
        :responses
        {200 {:body map?}
         400 {:body map?}
@@ -308,9 +339,11 @@
        :handler
        (fn [{{multipart-items :multipart} :parameters
              {{:keys [login]} :identity}  :session}]
+         (log/debug (str "Multipart-items: " multipart-items))
          (response/ok
            (reduce-kv
              (fn [acc name {:keys [size content-type] :as file-part}]
+               (log/debug (str "The name of the file is: " name))
                (cond
                  (> size (* 5 1024 1024))
                  (do
@@ -330,10 +363,10 @@
                                       :owner  login})
                                    (= name :banner)
                                    (media/insert-image-returning-name
-                                     (assoc file-part :filename (str (:login identity) "_banner.png"))
+                                     (assoc file-part :filename (str login "_banner.png"))
                                      {:width  1200
                                       :height 400
-                                      :owner  (:login identity)})
+                                      :owner  login})
                                    :else
                                    (media/insert-image-returning-name
                                      (update
@@ -342,7 +375,7 @@
                                        string/replace #"\.[^\.]+$" ".png")
                                      {:max-width  800
                                       :max-height 2000
-                                      :owner      (:login identity)})))))
+                                      :owner      login})))))
                  :else
                  (do
                    (log/error "Unsupported file type " content-type " for file " name)

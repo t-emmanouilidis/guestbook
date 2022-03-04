@@ -39,6 +39,7 @@
                        (.filter transform-op img
                                 (BufferedImage. (* ratio img-width) (* ratio img-height) (.getType img)))))]
     (ImageIO/write img-scaled "png" baos)
+    (log/debug (str "The name of the file is: " filename))
     (if (= 0 (db/save-file! {:name  filename
                              :data  (.toByteArray baos)
                              :owner owner
