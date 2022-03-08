@@ -159,7 +159,21 @@
                              :post   post}))
              (catch Exception e
                (response/bad-request
-                 {:message (str "Could not boost post with id " post-id " as " login)})))))}}]]
+                 {:message (str "Could not boost post with id " post-id " as " login)})))))}}]
+     ["/replies"
+      {::auth/roles (auth/roles :message/get)
+       :get
+       {:handler
+        (fn [{{{:keys [post-id]} :path} :parameters}]
+          (let [replies (msg/get-replies post-id)]
+            (response/ok {:replies replies})))}}]
+     ["/parents"
+      {::auth/roles (auth/roles :message/get)
+       :get
+       {:handler
+        (fn [{{{:keys [post-id]} :path} :parameters}]
+          (let [parents (msg/get-parents post-id)]
+            (response/ok {:parents parents})))}}]]
     [""
      {::auth/roles (auth/roles :message/create!)
       :post

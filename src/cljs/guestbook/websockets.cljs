@@ -24,8 +24,26 @@
       (send! message timeout (fn [r] (rf/dispatch (conj callback-event r))))
       (send! message timeout))))
 
+(rf/reg-event-db
+  :ws/set-message-add-handler
+  (fn [db [_ ev]]
+    (if ev
+      (assoc db :ws/message-add-handler ev)
+      (dissoc db :ws/message-add-handler))))
+
+(rf/reg-sub
+  :ws/message-add-handler
+  (fn [db _]
+    (:ws/message-add-handler db)))
+
 (defmulti handle-message (fn [{:keys [id]} _] id))
-(defmethod handle-message :messages/add [_ msg-add-event] (rf/dispatch msg-add-event))
+
+(defmethod handle-message :messages/add
+  [_ [_ msg :as msg-add-event]]
+  (if-some [ev @(rf/subscribe [:ws/message-add-handler])]
+    (rf/dispatch (conj ev msg))
+    (rf/dispatch msg-add-event)))
+
 (defmethod handle-message :message/creation-errors [_ [_ response]] (rf/dispatch [:form/set-server-errors (:errors response)]))
 
 (defmethod handle-message :chsk/handshake [{:keys [event]} _] (.log js/console "Connection established: " (pr-str event)))

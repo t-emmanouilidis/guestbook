@@ -39,3 +39,9 @@
 
 (defn timeline-for-poster [poster]
   {:messages (vec (db/get-timeline-for-poster {:poster poster}))})
+
+(defn get-replies [id]
+  (db/get-replies {:id id}))
+
+(defn get-parents [id]
+  (db/get-parents {:id id}))

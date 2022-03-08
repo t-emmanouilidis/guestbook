@@ -23,18 +23,26 @@
   (fn [modals [_ modal-id]]
     (get modals modal-id false)))
 
-(defn modal-card [id title body footer]
-  [:div.modal
-   {:class (when @(rf/subscribe [:app/modal-showing? id]) "is-active")}
-   [:div.modal-background
-    {:on-click #(rf/dispatch [:app/hide-modal id])}]
-   [:div.modal-card
-    [:header.modal-card-head
-     [:p.modal-card-title title]
-     [:button.delete
-      {:on-click #(rf/dispatch [:app/hide-modal id])}]]
-    [:section.modal-card-body body]
-    [:footer.modal-card-foot footer]]])
+(defn modal-card [opts-or-id title body footer]
+  (let [{:keys [id on-close] :as opts} (if (and (map? opts-or-id)
+                                                (contains? opts-or-id :id))
+                                         opts-or-id
+                                         {:id opts-or-id})
+        close-modal! (fn []
+                       (when (fn? on-close)
+                         (on-close id))
+                       (rf/dispatch [:app/hide-modal id]))]
+    [:div.modal
+     {:class (when @(rf/subscribe [:app/modal-showing? id]) "is-active")}
+     [:div.modal-background
+      {:on-click close-modal!}]
+     [:div.modal-card
+      [:header.modal-card-head
+       [:p.modal-card-title title]
+       [:button.delete
+        {:on-click close-modal!}]]
+      [:section.modal-card-body body]
+      [:footer.modal-card-foot footer]]]))
 
 (defn modal-button
   ([id title body footer]

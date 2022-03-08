@@ -5,7 +5,8 @@
             [clojure.string :as string]
             [guestbook.validation :refer [validate-message]]
             [guestbook.components :refer [text-input textarea-input image md image-uploader]]
-            [reitit.frontend.easy :as rtfe]))
+            [reitit.frontend.easy :as rtfe]
+            [guestbook.modals :as modals]))
 
 (rf/reg-event-fx
   :messages/load-by-author
@@ -64,63 +65,99 @@
        "Loading messages from server"
        "Refresh messages")]))
 
+(defn post-meta [{:keys [id is_boost timestamp posted_at poster poster_avatar source source_avatar] :as m}]
+  (let [posted_at (or posted_at timestamp)]
+    [:<>
+     (when is_boost
+       [:div.columns.is-centered.is-1.mb-0
+        [:div.column.is-narrow.pb-0
+         [image (or poster_avatar "/img/avatar_default.png") 24 24]]
+        [:div.column.is-narrow.pb-0
+         [:a {:href (str "/user/" poster "?post-id=" id)} poster]]
+        [:div.column.is-narrow.pb-0 "♻️"]
+        [:div.column.is-narrow.pb-0
+         [image (or source_avatar "/img/avatar_default.png") 24 24]]
+        [:div.column.pb-0 #_{:style {:text-align "left"}}
+         [:div.column.is-narrow.pb-0
+          [:a {:href (str "/user/" source "?post-id=" id)} source]]]])
+     [:div.mb-4>time
+      (if posted_at
+        (.toLocaleString posted_at)
+        "NULL POSTED_AT")]]))
+
+(defn message-content
+  [{:keys [messages name author] :as m}]
+  [:<>
+   (if (seq messages)
+     (doall
+       (for [{:keys [message id]} (reverse messages)]
+         ^{:key id}
+         [md :p.reply-chain-item message]))
+     [md (:message m)])
+   [:p " - " name
+    " <"
+    (if author
+      [:a {:href (str "/user/" author)} (str "@" author)]
+      [:span.is-italic "account not found"])
+    ">"]])
+
+(defn expand-post-button [{:keys [id root_id]}]
+  [:button.button.level-item.is-rounded.is-small.is-secondary.is-outlined
+   {:on-click (fn [_]
+                (let [{{:keys [name]}       :data
+                       {:keys [path query]} :parameters}
+                      @(rf/subscribe [:router/current-route])]
+                  (rtfe/replace-state name path (assoc query :post-id id)))
+                (rtfe/push-state :guestbook.routes.app/post {:post-id root_id}
+                                 (when (not= root_id id
+                                             {:reply-id id}))))}
+   [:i.material-icons
+    "open_in_new"]])
+
+(defn boost-button [{:keys [boosts] :as m}]
+  [:button.button.level-item.is-rounded.is-small.is-info.is-outlined
+   {:on-click (fn [_] (rf/dispatch [:message/boost! m]))
+    :disabled (nil? @(rf/subscribe [:auth/user]))}
+   "♻️ " boosts])
+
+(declare reply-modal)
+
+(defn reply-button
+  [{:keys [reply_count] :as m}]
+  [:<>
+   [reply-modal m]
+   [:button.button.is-rounded.is-small.is-outlined.level-item
+    {:on-click (fn []
+                 (rf/dispatch [:form/clear])
+                 (rf/dispatch [:app/show-modal [:reply-modal (:id m)]]))
+     :disabled (not= @(rf/subscribe [:auth/user-state]) :authenticated)}
+    [:span.material-icons
+     {:style {:font-size "inherit"}}
+     "chat"]
+    [:span.ml-1 reply_count]]])
+
 (defn message
   ([m] [message m {}])
-  ([{:keys [id timestamp message name author avatar boosts is_boost]
+  ([{:keys [id timestamp messages name author avatar boosts is_boost reply_count]
      :or   {boosts 0}
      :as   m}
-    {:keys [include-link?] :or {include-link? true}}]
-   (let [{:keys [posted_at poster poster_avatar
-                 source source_avatar] :as m}
-         (if is_boost
-           m
-           (assoc m
-             :poster author
-             :poster_avatar avatar
-             :posted_at timestamp))]
-     [:article.media
-      [:figure.media-left
-       [image (or avatar "/img/avatar_default.png") 128 128]]
-      [:div.media-content
-       [:div.content
-        (when is_boost
-          [:div.columns.is-centered.is-1.mb-0
-           [:div.column.is-narrow.pb-0
-            [image (or poster_avatar "/img/avatar_default.png" 24 24)]]
-           [:div.column.is-narrow.pb-0
-            [:a {:href (str "/user/" poster "?post-id=" id)} poster]]
-           [:div.column.is-narrow.pb-0 "©"]
-           [:div.column.is-narrow.pb-0
-            [image (or source_avatar "/img/avatar_default.png" 24 24)]]
-           [:div.column.pb-0 #_{:style {:text-align "left"}}
-            [:div.column.is-narrow.pb-0
-             [:a {:href (str "/user/" source "?post-id=" id)} source]]]])
-        [:div.mb-4>time
-         (.toLocaleString posted_at)]
-        [md message]
-        [:p " - " name
-         " <"
-         (if author
-           [:a {:href (str "/user/" author)} (str "@" author)]
-           [:span.is-italic "account not found"])
-         ">"]]
+    {:keys [include-link? include-bar?]
+     :or   {include-link? true
+            include-bar?  true}}]
+   [:article.media
+    [:figure.media-left
+     [image (or avatar "/img/avatar_default.png") 128 128]]
+    [:div.media-content
+     [:div.content
+      [post-meta m]
+      [message-content m]]
+     (when include-bar?
        [:nav.level
         [:div.level-left
          (when include-link?
-           [:button.button.level-item.is-rounded.is-small.is-secondary.is-outlined
-            {:on-click (fn [_]
-                         (let [{{:keys [name]}       :data
-                                {:keys [path query]} :parameters}
-                               @(rf/subscribe [:router/current-route])]
-                           (rtfe/replace-state name path (assoc query :post-id id)))
-                         (rtfe/push-state :guestbook.routes.app/post {:post-id id}))}
-            [:i.material-icons
-             "open_in_new"]])
-
-         [:button.button.level-item.is-rounded.is-small.is-info.is-outlined
-          {:on-click (fn [_] (rf/dispatch [:message/boost! m]))
-           :disabled (nil? @(rf/subscribe [:auth/user]))}
-          "© " boosts]]]]])))
+           [expand-post-button m])
+         [boost-button m]
+         [reply-button m]]])]]))
 
 (defn msg-li
   [m message-id]
@@ -174,6 +211,12 @@
   [(rf/path :form/fields)]
   (fn [fields [_ id value]]
     (assoc fields id value)))
+
+(rf/reg-event-fx
+  :form/clear
+  (fn [_ _]
+    {:dispatch-n [[:form/clear-fields]
+                  [:message/clear-media]]}))
 
 (rf/reg-event-db
   :form/clear-fields
@@ -231,8 +274,20 @@
   :message/send!-called-back
   (fn [_ [_ {:keys [success errors]}]]
     (if success
-      {:dispatch-n [[:form/clear-fields] [:message/clear-media]]}
+      {:dispatch-n [[:form/clear-fields]
+                    [:message/clear-media]
+                    [:app/hide-reply-modals]]}
       {:dispatch [:form/set-server-errors errors]})))
+
+(rf/reg-event-db
+  :app/hide-reply-modals
+  (fn [db _]
+    (update db :app/active-modals
+            (fn [current-active]
+              (into {}
+                    ;; transducer
+                    (remove (fn [[k _]] (= :reply-modal k)))
+                    current-active)))))
 
 (rf/reg-event-fx
   :message/send!
@@ -312,6 +367,58 @@
         [:li
          [message m {:include-link? false}]]])]))
 
+(defn message-form-preview [parent]
+  (let [{:keys [login profile]} @(rf/subscribe [:auth/user])
+        display-name (:display-name profile login)
+        msg {:message   @(rf/subscribe [:form/field :message])
+             :id        -1
+             :timestamp (js/Date.)
+             :name      display-name
+             :author    login
+             :avatar    (:avatar profile)}]
+    [message-preview
+     (assoc msg :messages (cons msg (:messages parent)))]))
+
+(defn message-form-content []
+  (let [{:keys [login profile]} @(rf/subscribe [:auth/user])
+        display-name (:display-name profile login)]
+    [:<>
+     [errors-component :server-error]
+     [errors-component :unauthorized "Please log in before posting."]
+     [:div.field
+      [:label.label {:for :name} "Name"]
+      display-name]
+     [:div.field
+      [:div.control
+       [image-uploader
+        #(rf/dispatch [:message/save-media %])
+        "Insert an image"]]]
+     [:div.field
+      [:label.label {:for :message} "Message"]
+      [errors-component :message]
+      [textarea-input {:attrs        {:name :message}
+                       :save-timeout 1000
+                       :value        (rf/subscribe [:form/field :message])
+                       :on-save      #(rf/dispatch [:form/set-field :message %])}]]]))
+
+(defn reply-modal [parent]
+  [modals/modal-card
+   {:id       [:reply-modal (:id parent)]
+    :on-close #(rf/dispatch [:form/clear])}
+   (str "Reply to post by user: " (:author parent))
+   [:<>
+    [message-form-preview parent]
+    [message-form-content]]
+   [:input.button.is-primary.is-fullwidth
+    {:type     :submit
+     :disabled @(rf/subscribe [:form/validation-errors?])
+     :on-click #(rf/dispatch [:message/send!
+                              (assoc
+                                @(rf/subscribe [:form/fields])
+                                :parent (:id parent))
+                              @(rf/subscribe [:message/media])])
+     :value    (str "Reply to " (:author parent))}]])
+
 (defn message-form []
   [:div.card
    [:div.card-header>p.card-header-title
@@ -319,33 +426,13 @@
    (let [{:keys [login profile]} @(rf/subscribe [:auth/user])
          display-name (:display-name profile login)]
      [:div.card-content
-      [message-preview {:message   @(rf/subscribe [:form/field :message])
-                        :id        -1
-                        :timestamp (js/Date.)
-                        :name      display-name
-                        :author    login
-                        :avatar    (:avatar profile)}]
-      [errors-component :server-error]
-      [errors-component :unauthorized "Please log in before posting."]
-      [:div.field
-       [:label.label {:for :name} "Name"]
-       display-name]
-      [:div.field
-       [:label.label {:for :message} "Message"]
-       [errors-component :message]
-       [textarea-input {:attrs        {:name :message}
-                        :save-timeout 1000
-                        :value        (rf/subscribe [:form/field :message])
-                        :on-save      #(rf/dispatch [:form/set-field :message %])}]]
-      [:div.field
-       [:div.control
-        [image-uploader
-         #(rf/dispatch [:message/save-media %])
-         "Insert an image"]]]
-      [:input.button.is-primary {:type     :submit
-                                 :disabled @(rf/subscribe [:form/validation-errors?])
-                                 :value    "Comment"
-                                 :on-click (fn [_]
-                                             (rf/dispatch [:message/send!
-                                                           @(rf/subscribe [:form/fields])
-                                                           @(rf/subscribe [:message/media])]))}]])])
+      [message-form-preview {}]
+      [message-form-content]
+      [:input.button.is-primary
+       {:type     :submit
+        :disabled @(rf/subscribe [:form/validation-errors?])
+        :value    "Comment"
+        :on-click (fn [_]
+                    (rf/dispatch [:message/send!
+                                  @(rf/subscribe [:form/fields])
+                                  @(rf/subscribe [:message/media])]))}]])])

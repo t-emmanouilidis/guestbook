@@ -52,7 +52,9 @@
                  :align-items      :center
                  :background-color "#F5F5F5"
                  :margin-bottom    "0.5em"}}
-   [:img {:src url :style {:max-width width :max-height height}}]])
+   [:img {:src   url
+          :style {:max-width  width
+                  :max-height height}}]])
 
 (defn image-uploader [save-fn label-text]
   [:div.file>label.file-label

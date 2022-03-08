@@ -154,3 +154,39 @@ WHERE p.is_boost = :is_boost
   AND id = :post
 ORDER BY posted_at
 limit 1;
+
+-- :name get-post :? :1
+-- :doc returns a specific post
+SELECT *
+FROM posts_with_meta
+         INNER JOIN (select id, parent from posts) as p using (id)
+         INNER JOIN reply_count using (id)
+WHERE id = :id;
+
+-- :name get-replies :? :*
+-- :doc returns all the replies for a specific post
+select *
+from posts_with_meta
+         inner join (select id, parent from posts) as p using (id)
+         inner join reply_count using (id)
+where id IN (select id
+             from posts
+             where parent = :id);
+
+-- :name get-parents :? :*
+-- :doc returns the parents of a reply/post
+SELECT *
+from posts_with_meta
+         inner join (select id, parent from posts) as p using (id)
+         inner join reply_count using (id)
+where id in (with recursive parents as (
+    select id, parent
+    from posts
+    where id = :id
+    UNION
+    select p.id, p.parent
+    from posts p
+             inner join parents pp
+                        on p.id = pp.parent)
+             select id
+             from parents);
