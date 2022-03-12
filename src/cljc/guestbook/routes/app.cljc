@@ -5,7 +5,9 @@
         :cljs [[guestbook.views.home :as home]
                [guestbook.views.author :as author]
                [guestbook.views.profile :as profile]
-               [guestbook.views.post :as post]])
+               [guestbook.views.post :as post]
+               [guestbook.views.tag :as tag]
+               [guestbook.views.feed :as feed]])
     [spec-tools.data-spec :as ds]))
 
 #?(:clj
@@ -43,4 +45,18 @@
          {:parameters  {:query {(ds/opt :reply-id) pos-int?}
                         :path  {:post-id pos-int?}}
           :controllers post/post-controllers
-          :view        #'post/post-page}))]])
+          :view        #'post/post-page}))]
+   ["/tag/:tag"
+    (merge
+      {:name ::tag}
+      #?(:cljs
+         {:parameters  {:query {(ds/opt :post_id) pos-int?}
+                        :path  {:tag string?}}
+          :controllers tag/tag-controllers
+          :view        #'tag/tag}))]
+   ["/feed"
+    (merge
+      {:name ::feed}
+      #?(:cljs {:parameters  {:query {(ds/opt :post_id) pos-int?}}
+                :controllers feed/feed-controllers
+                :view        #'feed/feed}))]])

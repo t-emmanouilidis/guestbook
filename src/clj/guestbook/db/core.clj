@@ -7,6 +7,7 @@
     [mount.core :refer [defstate]]
     [guestbook.config :refer [env]]
     [next.jdbc.prepare]
+    [guestbook.db.util]
     [jsonista.core :as json])
   (:import org.postgresql.util.PGobject
            (clojure.lang IPersistentMap IPersistentVector)

@@ -186,25 +186,29 @@
     [:div {:style {:width "10em"}}
      [:progress.progress.is-dark {:max 100} "30%"]]]])
 
-(defn add-message? [filter-map message]
+(defn add-message? [filter-map msg]
   (every?
-    (fn [[filter-map-key filter-map-value]]
-      (let [message-value-for-key (get message filter-map-key)]
+    (fn [[k matcher]]
+      (let [v (get msg k)]
         (cond
-          (set? filter-map-value)
-          (filter-map-value message-value-for-key)
-          (fn? filter-map-value)
-          (filter-map-value message-value-for-key)
+          (set? matcher)
+          (matcher v)
+          (fn? matcher)
+          (matcher v)
           :else
-          (= filter-map-value message-value-for-key))))
+          (= matcher v))))
     filter-map))
 
 (rf/reg-event-db
   :messages/add
   (fn [db [_ message]]
-    (if (add-message? (:messages/filter db) message)
-      (update db :messages/list conj message)
-      db)))
+    (let [msg-filter (:messages/filter db)
+          filters (if (map? msg-filter)
+                    [msg-filter]
+                    msg-filter)]
+      (if (some #(add-message? % message) filters)
+        (update db :messages/list conj message)
+        db))))
 
 (rf/reg-event-db
   :form/set-field
@@ -344,6 +348,33 @@
   :message/media
   (fn [db _]
     (:message/media db)))
+
+(rf/reg-event-fx
+  :messages/load-by-tag
+  (fn [{:keys [db]} [_ tag]]
+    {:db       (assoc db
+                 :messages/loading? true
+                 :messages/filter
+                 {:message #(re-find (re-pattern (str "(?<=\\s|^)#" tag "(?=\\s|$)")) %)}
+                 :messages/list nil)
+     :ajax/get {:url           (str "/api/messages/tagged/" tag)
+                :success-path  [:messages]
+                :success-event [:messages/set]}}))
+
+(rf/reg-event-fx
+  :messages/load-feed
+  (fn [{:keys [db]} _]
+    (let [{:keys [follows tags]} (get-in db [:auth/user :profile :subscriptions])]
+      {:db       (assoc db
+                   :messages/loading? true
+                   :messages/list nil
+                   :messages/filter
+                   [{:message
+                     #(some (fn [tag] (re-find (re-pattern (str "(?<=\\s|^)#" tag "(?=\\s|$)")) %)) tags)
+                     :poster #(some (partial = %) follows)}])
+       :ajax/get {:url           "/api/messages/feed"
+                  :success-path  [:messages]
+                  :success-event [:messages/set]}})))
 
 (defn errors-component [id & [message]]
   (when-let [error @(rf/subscribe [:form/error id])]

@@ -65,10 +65,14 @@
          [:div.navbar-start
           [:a.navbar-item {:href "/"} "Home"]
           (when (= @(rf/subscribe [:auth/user-state]) :authenticated)
-            [:a.navbar-item
-             {:href (rtfe/href :guestbook.routes.app/author
-                               {:user (:login @(rf/subscribe [:auth/user]))})}
-             "My Posts"])]
+            [:<>
+             [:a.navbar-item
+              {:href (rtfe/href :guestbook.routes.app/author
+                                {:user (:login @(rf/subscribe [:auth/user]))})}
+              "My Posts"]
+             [:a.navbar-item
+              {:href (rtfe/href :guestbook.routes.app/feed)}
+              "My Feed"]])]
          [:div.navbar-end
           [:div.navbar-item
            (case @(rf/subscribe [:auth/user-state])

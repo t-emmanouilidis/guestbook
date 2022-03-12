@@ -1,6 +1,7 @@
 (ns guestbook.views.author
   (:require [re-frame.core :as rf]
             [guestbook.messages :as msg]
+            [guestbook.subscriptions :as sub]
             [reitit.frontend.easy :as rtfe]))
 
 (defn banner-component [url]
@@ -35,6 +36,7 @@
          [:div.columns.is-centered>div.column.is-two-thirds
           [:div.columns>div.column
            [:h3 "Posts by " display-name " <@" user ">"]
+           [sub/subscribe-button :follows user]
            (if @(rf/subscribe [:messages/loading?])
              [msg/message-list-placeholder]
              [msg/message-list post-id])]

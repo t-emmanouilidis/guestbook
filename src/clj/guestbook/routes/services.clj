@@ -106,7 +106,8 @@
                         (msg/timeline)
                         (msg/message-list))))}}]
     ["/by/:author"
-     {:get
+     {::auth/roles (auth/roles :messages/list)
+      :get
       {:parameters {:path {:author string?}}
        :responses
        {200
@@ -123,7 +124,48 @@
               {:keys [boosts] :or {boosts true}} :query} :parameters}]
          (response/ok (if boosts
                         (msg/timeline-for-poster author)
-                        (msg/messages-by-author author))))}}]]
+                        (msg/messages-by-author author))))}}]
+    ["/tagged/:tag"
+     {::auth/roles (auth/roles :messages/list)
+      :get
+      {:parameters
+       {:path {:tag string?}}
+       :responses
+       {200
+        {:body
+         {:messages
+          [{:id        pos-int?
+            :name      string?
+            :message   string?
+            :timestamp inst?
+            :author    (ds/maybe string?)
+            :avatar    (ds/maybe string?)}]}}}
+       :handler
+       (fn [{{{:keys [tag]}                      :path
+              {:keys [boosts] :or {boosts true}} :query} :parameters}]
+         (if boosts
+           (response/ok
+             (msg/get-feed-for-tag tag))
+           (response/not-implemented {:message "Tags cannot filter out boosts."})))}}]
+    ["/feed"
+     {::auth/roles (auth/roles :messages/feed)
+      :get
+      {:responses
+       {200
+        {:body
+         {:messages
+          [{:id        pos-int?
+            :name      string?
+            :message   string?
+            :timestamp inst?
+            :author    (ds/maybe string?)
+            :avatar    (ds/maybe string?)}]}}}
+       :handler
+       (fn [{{{:keys [boosts] :or {boosts true}} :query}    :parameters
+             {{{:keys [subscriptions]} :profile} :identity} :session}]
+         (if boosts
+           (response/ok (msg/get-feed subscriptions))
+           (response/not-implemented {:message "Feed cannot filter out boosts."})))}}]]
    ["/message"
     ["/:post-id"
      {:parameters

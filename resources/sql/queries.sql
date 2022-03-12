@@ -23,14 +23,14 @@ WHERE login = :login;
 -- :name get-messages-by-author :? :*
 -- :doc returns all messages by given author
 SELECT *
-from posts_with_meta
+FROM posts_with_meta
 WHERE author = :author;
 
 -- :name set-profile-for-user* :<! :1
 -- :doc sets a profile map for the specified user
 UPDATE users
 SET profile = :profile
-where login = :login
+WHERE login = :login
 RETURNING *;
 
 -- :name get-user* :? :1
@@ -126,24 +126,16 @@ FROM reboosts;
 
 -- :name get-timeline :? :*
 -- :doc Gets the latest post or boost for each post
-SELECT t.*
-FROM (
-         SELECT DISTINCT ON (p.id) *
-         FROM posts_and_boosts p
-         ORDER BY p.id, p.posted_at DESC
-     ) as t
-ORDER BY t.posted_at;
+SELECT DISTINCT ON (p.id) *
+FROM posts_and_boosts p
+ORDER BY p.id ASC, p.posted_at DESC;
 
 -- :name get-timeline-for-poster :? :*
 -- :doc Gets the latest post or boost for each post for a specific poster
-SELECT t.*
-FROM (
-         SELECT DISTINCT ON (p.id) *
-         FROM posts_and_boosts p
-         WHERE p.poster = :poster
-         ORDER BY p.id, p.posted_at DESC
-     ) as t
-ORDER BY t.posted_at;
+SELECT DISTINCT ON (p.id) *
+FROM posts_and_boosts p
+WHERE p.poster = :poster
+ORDER BY p.id ASC, p.posted_at DESC;
 
 -- :name get-timeline-post :? :1
 -- :doc Gets the boosted post for updating timelines
@@ -152,7 +144,7 @@ FROM posts_and_boosts p
 WHERE p.is_boost = :is_boost
   AND poster = :user
   AND id = :post
-ORDER BY posted_at
+ORDER BY posted_at asc
 limit 1;
 
 -- :name get-post :? :1
@@ -190,3 +182,37 @@ where id in (with recursive parents as (
                         on p.id = pp.parent)
              select id
              from parents);
+
+-- :name get-feed-for-tag :? :*
+-- :require [guestbook.db.util :refer [tag-regex]]
+-- :doc given a tag return its feed
+select distinct on (p.id) *
+from posts_and_boosts as p
+where
+/*~ (if (:tag params) */
+p.message ~*
+/*~*/
+false
+/*~ ) ~*/
+--~ (when (:tag params) (tag-regex (:tag params)))
+order by p.id, posted_at desc;
+
+-- :name get-feed :? :*
+-- :require [guestbook.db.util :refer [tags-regex]]
+-- :doc given a vector of follows and a vector of tags, return a feed
+select distinct on (p.id) *
+from posts_and_boosts p
+where
+/*~ (if (seq (:follows params)) */
+p.poster in (:v*:follows)
+/*~*/
+false
+/*~ ) ~*/
+or
+/*~ (if (seq (:tags params)) */
+p.message ~*
+/*~*/
+false
+/*~ ) ~*/
+--~ (when (seq (:tags params)) (tags-regex (:tags params)))
+order by p.id asc, posted_at desc;
