@@ -19,7 +19,7 @@
 
 (defn get-roles-from-match [req]
   (-> req
-      ring/get-match
+      ring/get-match,,,
       (get-in,,, [:data ::auth/roles] #{})))
 
 (defn wrap-authorized [handler unauthorized-handler]
@@ -34,7 +34,7 @@
     (fn handle-unauthorized [req]
       (let [route-roles (get-roles-from-match req)]
         (log/debug "Roles for route: " (:uri req) route-roles)
-        (log/debug "User is unauthorized!"
+        (log/debug "User is unauthorized! User roles: "
                    (-> req
                        :session
                        :identity

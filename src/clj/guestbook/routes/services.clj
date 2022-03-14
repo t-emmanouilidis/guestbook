@@ -16,7 +16,7 @@
             [spec-tools.data-spec :as ds]
             [guestbook.author :as author]
             [clojure.tools.logging :as log]
-            [guestbook.auth.ring :refer [wrap-authorized get-roles-from-match]]
+            [guestbook.auth.ring :refer [wrap-authorized get-roles-from-match] :as gauth]
             [guestbook.session :as session]
             [clojure.java.io :as io]
             [guestbook.media :as media]
@@ -55,6 +55,15 @@
           (response/bad-request {:errors errors})
           (response/internal-server-error {:errors {:server-error ["Failed to save message!"]}}))))))
 
+(s/def ::post-id pos-int?)
+(s/def ::post-name string?)
+(s/def ::post-message string?)
+(s/def ::post-timestamp inst?)
+(s/def ::post-author string?)
+(s/def ::post-avatar string?)
+(s/def ::post (s/keys :req [::post-id ::post-name ::post-message ::post-timestamp]
+                          :opt [::post-author ::post-avatar]))
+
 (defn service-routes []
   ["/api"
    {:middleware [parameters/parameters-middleware
@@ -65,19 +74,7 @@
                  coercion/coerce-request-middleware
                  coercion/coerce-response-middleware
                  multipart/multipart-middleware
-                 (fn [handler]
-                   (wrap-authorized
-                     handler
-                     (fn handle-unauthorized [req]
-                       (let [route-roles (get-roles-from-match req)]
-                         (log/debug "Roles for route: " (:uri req) route-roles)
-                         (log/debug "User is unauthorized!"
-                                    (-> req
-                                        :session
-                                        :identity
-                                        :roles))
-                         (response/forbidden
-                           {:message (str "User must have one of the following roles: " route-roles)})))))]
+                 gauth/mw]
     :muuntaja   formats/instance
     :coercion   spec-coercion/coercion
     :swagger    {:id ::api}}
@@ -94,12 +91,7 @@
        {200
         {:body
          {:messages
-          [{:id        pos-int?
-            :name      string?
-            :message   string?
-            :timestamp inst?
-            :author    (ds/maybe string?)
-            :avatar    (ds/maybe string?)}]}}}
+          [::post]}}}
        :handler
        (fn [{{{:keys [boosts] :or {boosts true}} :query} :parameters}]
          (response/ok (if boosts
@@ -113,12 +105,7 @@
        {200
         {:body
          {:messages
-          [{:id        pos-int?
-            :name      string?
-            :message   string?
-            :timestamp inst?
-            :author    (ds/maybe string?)
-            :avatar    (ds/maybe string?)}]}}}
+          [::post]}}}
        :handler
        (fn [{{{:keys [author]}                   :path
               {:keys [boosts] :or {boosts true}} :query} :parameters}]
@@ -134,12 +121,7 @@
        {200
         {:body
          {:messages
-          [{:id        pos-int?
-            :name      string?
-            :message   string?
-            :timestamp inst?
-            :author    (ds/maybe string?)
-            :avatar    (ds/maybe string?)}]}}}
+          [::post]}}}
        :handler
        (fn [{{{:keys [tag]}                      :path
               {:keys [boosts] :or {boosts true}} :query} :parameters}]
@@ -154,12 +136,7 @@
        {200
         {:body
          {:messages
-          [{:id        pos-int?
-            :name      string?
-            :message   string?
-            :timestamp inst?
-            :author    (ds/maybe string?)
-            :avatar    (ds/maybe string?)}]}}}
+          [::post]}}}
        :handler
        (fn [{{{:keys [boosts] :or {boosts true}} :query}    :parameters
              {{{:keys [subscriptions]} :profile} :identity} :session}]
@@ -169,8 +146,7 @@
    ["/message"
     ["/:post-id"
      {:parameters
-      {:path
-       {:post-id pos-int?}}}
+      {:path ::post-id}}
      [""
       {::auth/roles (auth/roles :message/get)
        :get

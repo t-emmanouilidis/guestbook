@@ -23,7 +23,7 @@
             [:h3 (str "My Feed")]
             (if @(rf/subscribe [:messages/loading?])
               [msg/message-list-placeholder]
-              [msg/message-list messages post_id])]
+              [msg/message-list post_id])]
            [:div.columns>div.column
             [msg/message-form]]]
           :anonymous
