@@ -1,7 +1,8 @@
 (ns guestbook.auth
   (:require [next.jdbc :as jdbc]
             [guestbook.db.core :as db]
-            [buddy.hashers :as hashers]))
+            [buddy.hashers :as hashers]
+            [spec-tools.data-spec :as ds]))
 
 (def roles
   {:message/create!      #{:authenticated}
@@ -60,3 +61,8 @@
         (throw (ex-info "Password is incorrect!"
                         {:guestbook/error-id ::authentication-failure
                          :error              "Password is incorrect!"}))))))
+
+(def user?
+  {:login      string?
+   :created_at inst?
+   :profile    (ds/maybe map?)})

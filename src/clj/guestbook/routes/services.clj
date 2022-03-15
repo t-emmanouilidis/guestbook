@@ -24,46 +24,6 @@
             [clojure.string :as string])
   (:import (clojure.lang ExceptionInfo)))
 
-(defn message-list [_]
-  (response/ok (msg/message-list)))
-
-(defn doLogin [req]
-  (let [{session                          :session
-         {{:keys [login password]} :body} :parameters} req]
-    (log/debug (str "login: " login ", password: " password))
-    (if-some [user (auth/authenticate-user login password)]
-      (let [session (or session {})
-            new-session (assoc session :identity user)]
-        (log/debug "New session: " new-session)
-        (session/write-session req new-session)
-        (->
-          (response/ok {:identity user})
-          (assoc :session new-session)))
-      (response/unauthorized {:message "Incorrect login or password."}))))
-
-(defn save-message! [{{params :body}     :parameters
-                      {:keys [identity]} :session}]
-  (try
-    (->> (msg/save-message! identity params)
-         (assoc {:status :ok} :post)
-         (response/ok))
-    (catch Exception e
-      (let [{id     :guestbook/error-id
-             errors :errors} (ex-data e)]
-        (case id
-          :validation
-          (response/bad-request {:errors errors})
-          (response/internal-server-error {:errors {:server-error ["Failed to save message!"]}}))))))
-
-(s/def ::post-id pos-int?)
-(s/def ::post-name string?)
-(s/def ::post-message string?)
-(s/def ::post-timestamp inst?)
-(s/def ::post-author string?)
-(s/def ::post-avatar string?)
-(s/def ::post (s/keys :req [::post-id ::post-name ::post-message ::post-timestamp]
-                          :opt [::post-author ::post-avatar]))
-
 (defn service-routes []
   ["/api"
    {:middleware [parameters/parameters-middleware
@@ -91,7 +51,7 @@
        {200
         {:body
          {:messages
-          [::post]}}}
+          [msg/post?]}}}
        :handler
        (fn [{{{:keys [boosts] :or {boosts true}} :query} :parameters}]
          (response/ok (if boosts
@@ -105,7 +65,7 @@
        {200
         {:body
          {:messages
-          [::post]}}}
+          [msg/post?]}}}
        :handler
        (fn [{{{:keys [author]}                   :path
               {:keys [boosts] :or {boosts true}} :query} :parameters}]
@@ -121,7 +81,7 @@
        {200
         {:body
          {:messages
-          [::post]}}}
+          [msg/post?]}}}
        :handler
        (fn [{{{:keys [tag]}                      :path
               {:keys [boosts] :or {boosts true}} :query} :parameters}]
@@ -136,7 +96,7 @@
        {200
         {:body
          {:messages
-          [::post]}}}
+          [msg/post?]}}}
        :handler
        (fn [{{{:keys [boosts] :or {boosts true}} :query}    :parameters
              {{{:keys [subscriptions]} :profile} :identity} :session}]
@@ -146,12 +106,12 @@
    ["/message"
     ["/:post-id"
      {:parameters
-      {:path ::post-id}}
+      {:path {:post-id pos-int?}}}
      [""
       {::auth/roles (auth/roles :message/get)
        :get
        {:responses
-        {200 {:message map?}
+        {200 {:message msg/post?}
          403 {:message string?}
          404 {:message string?}
          500 {:message string?}}
@@ -165,7 +125,8 @@
        :post
        {:parameters {:body {:poster (ds/maybe string?)}}
         :responses
-        {200 {:body map?}
+        {200 {:body {:status keyword?
+                     :post   msg/post?}}
          400 {:message string?}}
         :handler
         (fn [{{{:keys [post-id]} :path
@@ -181,14 +142,22 @@
      ["/replies"
       {::auth/roles (auth/roles :message/get)
        :get
-       {:handler
+       {:responses
+        {200
+         {:body
+          {:replies [msg/post?]}}}
+        :handler
         (fn [{{{:keys [post-id]} :path} :parameters}]
           (let [replies (msg/get-replies post-id)]
             (response/ok {:replies replies})))}}]
      ["/parents"
       {::auth/roles (auth/roles :message/get)
        :get
-       {:handler
+       {:responses
+        {200
+         {:body
+          {:parents [msg/post?]}}}
+        :handler
         (fn [{{{:keys [post-id]} :path} :parameters}]
           (let [parents (msg/get-parents post-id)]
             (response/ok {:parents parents})))}}]]
@@ -200,10 +169,24 @@
         {:message         string?
          (ds/opt :parent) (ds/maybe int?)}}
        :responses
-       {200 {:body map?}
+       {200 {:body {:status keyword?
+                    :post   msg/post?}}
         400 {:body map?}
         500 {:errors map?}}
-       :handler save-message!}}]]
+       :handler
+       (fn [{{params :body}     :parameters
+             {:keys [identity]} :session}]
+         (try
+           (->> (msg/save-message! identity params)
+                (assoc {:status :ok} :post)
+                (response/ok))
+           (catch Exception e
+             (let [{id     :guestbook/error-id
+                    errors :errors} (ex-data e)]
+               (case id
+                 :validation
+                 (response/bad-request {:errors errors})
+                 (response/internal-server-error {:errors {:server-error ["Failed to save message!"]}}))))))}}]]
    ["/login"
     {::auth/roles (auth/roles :auth/login)
      :post
@@ -214,13 +197,23 @@
       :responses
       {:200
        {:body
-        {:identity
-         {:login      string?
-          :created_at inst?}}}
+        {:identity auth/user?}}
        :401
        {:body
         {:message string?}}}
-      :handler doLogin}}]
+      :handler
+      (fn [{session                          :session
+            {{:keys [login password]} :body} :parameters
+            :as                              req}]
+        (log/debug (str "login: " login ", password: " password))
+        (if-some [user (auth/authenticate-user login password)]
+          (let [new-session (assoc (or session {}) :identity user)]
+            (log/debug "New session: " new-session)
+            (session/write-session req new-session)
+            (->
+              (response/ok {:identity user})
+              (assoc :session new-session)))
+          (response/unauthorized {:message "Incorrect login or password."})))}}]
    ["/register"
     {::auth/roles (auth/roles :account/register)
      :post
@@ -269,10 +262,7 @@
        {:body
         {:session
          {:identity
-          (ds/maybe
-            {:login      string?
-             :created_at inst?
-             :profile    map?})}}}}
+          (ds/maybe auth/user?)}}}}
       :handler
       (fn [{{:keys [identity]} :session}]
         (let [toReturn (select-keys identity [:login :created_at :profile])]
@@ -284,7 +274,7 @@
       {:path {:login string?}}
       :responses
       {200
-       {:body map?}
+       {:body auth/user?}
        500
        {:errors map?}}
       :handler
@@ -324,6 +314,13 @@
         {:old-password     string?
          :new-password     string?
          :confirm-password string?}}
+       :responses
+       {200
+        {:body map?}
+        400
+        {:body map?}
+        401
+        {:body map?}}
        :handler
        (fn [{{{:keys [old-password new-password :confirm-password]} :body} :parameters
              {{:keys [login]} :identity}                                   :session}]

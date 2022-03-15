@@ -206,9 +206,13 @@
           filters (if (map? msg-filter)
                     [msg-filter]
                     msg-filter)]
-      (if (some #(add-message? % message) filters)
-        (update db :messages/list conj message)
-        db))))
+      (if (or (nil? filters) (some #(add-message? % message) filters))
+        (do
+          (.log js/console (str "Message arrived here: " message))
+          (update db :messages/list conj message))
+        (do
+          (.log js/console (str "Message not added and arrived here: " message))
+          db)))))
 
 (rf/reg-event-db
   :form/set-field

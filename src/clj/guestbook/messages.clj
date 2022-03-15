@@ -2,7 +2,8 @@
   (:require
     [guestbook.db.core :as db]
     [guestbook.validation :refer [validate-message]]
-    [conman.core :as conman]))
+    [conman.core :as conman]
+    [spec-tools.data-spec :as ds]))
 
 (defn message-list []
   {:messages (vec (db/get-messages))})
@@ -57,3 +58,21 @@
   {:messages (db/get-feed (merge {:follows []
                                   :tags    []}
                                  feed-map))})
+
+(def post?
+  {:id                     pos-int?
+   :name                   string?
+   :message                string?
+   :timestamp              inst?
+   :author                 (ds/maybe string?)
+   :avatar                 (ds/maybe string?)
+   (ds/opt :boosts)        (ds/maybe int?)
+   (ds/opt :poster_avatar) (ds/maybe string?)
+   (ds/opt :root_id)       pos-int?
+   (ds/opt :is_boost)      boolean?
+   (ds/opt :source_avatar) (ds/maybe string?)
+   (ds/opt :source)        (ds/maybe string?)
+   (ds/opt :posted_at)     inst?
+   (ds/opt :poster)        (ds/maybe string?)
+   (ds/opt :is_reply)      boolean?
+   (ds/opt :reply_count)   int?})
