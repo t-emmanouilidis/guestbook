@@ -13,6 +13,10 @@ FROM posts p
 GROUP BY p.id, u.login
     );
 --;;
+
+-- we take the list of boosts together with the original post data
+-- we do not keep a record for the original post i.e. without boost data, a record that is not a boost!
+-- we keep the original post record (not-boost) only if we have no boost for post
 CREATE OR REPLACE VIEW posts_and_boosts AS
 (
 SELECT p.id,

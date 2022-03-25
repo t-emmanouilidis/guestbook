@@ -16,7 +16,7 @@
             [spec-tools.data-spec :as ds]
             [guestbook.author :as author]
             [clojure.tools.logging :as log]
-            [guestbook.auth.ring :refer [wrap-authorized get-roles-from-match] :as gauth]
+            [guestbook.auth.ring :as gauth]
             [guestbook.session :as session]
             [clojure.java.io :as io]
             [guestbook.media :as media]

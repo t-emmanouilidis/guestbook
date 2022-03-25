@@ -83,26 +83,29 @@ WHERE boosts.user_id = :user
 
 -- :name boosters-of-post :? :*
 -- :doc Get all boosters for a post
-SELECT user_id as user
+SELECT user_id as "user"
 FROM boosts
 WHERE post_id = :post;
 
 -- :name get-reboosts :? :*
 -- Gets all boosts descended from a given boost
 WITH RECURSIVE reboosts AS (
+    -- ola ta boosts gia ayto to post
     WITH post_boosts AS
              (SELECT user_id, poster
               FROM boosts
               WHERE post_id = :post)
     SELECT user_id, poster
     FROM boosts
-    WHERE post_id = :post
-      AND user_id = :user
+    WHERE user_id = :user
     UNION
     SELECT b.user_id, b.poster
     FROM post_boosts b
+    -- we start from the given user_id and we recursively search the boosts table for this post
+    -- to get the next record where the initial user_id is the poster of the next row
+    -- i.e. we move down the tree
              INNER JOIN reboosts r ON r.user_id = b.poster)
-SELECT user_id AS user, poster as source
+SELECT user_id AS "user", poster as source
 FROM reboosts;
 
 -- :name get-boost-chain :? :*
@@ -119,23 +122,26 @@ WITH RECURSIVE reboosts AS (
     UNION
     SELECT b.user_id, b.poster
     FROM post_boosts b
+    -- the result of the non-recursive term (:user_id and :post from boosts) is joined with the post_boosts
+    -- where the user_id of the post_boosts need to be the same with the poster of the temporary table
+    -- i.e. we move up the tree.
              INNER JOIN reboosts r ON r.poster = b.user_id
 )
-SELECT user_id AS user, poster as source
+SELECT user_id AS "user", poster as source
 FROM reboosts;
 
 -- :name get-timeline :? :*
 -- :doc Gets the latest post or boost for each post
 SELECT DISTINCT ON (p.id) *
 FROM posts_and_boosts p
-ORDER BY p.id ASC, p.posted_at DESC;
+ORDER BY p.id, p.posted_at DESC;
 
 -- :name get-timeline-for-poster :? :*
 -- :doc Gets the latest post or boost for each post for a specific poster
 SELECT DISTINCT ON (p.id) *
 FROM posts_and_boosts p
 WHERE p.poster = :poster
-ORDER BY p.id ASC, p.posted_at DESC;
+ORDER BY p.id, p.posted_at DESC;
 
 -- :name get-timeline-post :? :1
 -- :doc Gets the boosted post for updating timelines
@@ -144,7 +150,7 @@ FROM posts_and_boosts p
 WHERE p.is_boost = :is_boost
   AND poster = :user
   AND id = :post
-ORDER BY posted_at asc
+ORDER BY posted_at
 limit 1;
 
 -- :name get-post :? :1

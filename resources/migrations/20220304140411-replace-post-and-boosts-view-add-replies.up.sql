@@ -20,10 +20,13 @@ from (WITH RECURSIVE posts_with_replies AS
                           UNION
                           SELECT r.parent, r.id, r.msg, p.post_id
                           FROM replies r
+                          -- move up the tree e.g. the parent of the initial non-recursive term be equal to the id of the next results
+                          -- we keep the leaf post_id (last reply_id) so that we can connect all the messages in the path with the same id and aggregate them
                                    INNER JOIN posts_with_replies p
                                               ON r.id = p.parent)
       SELECT post_id                    AS id,
              jsonb_agg(msg)             AS messages,
+             -- last id in our aggregation will be the root id
              (array_agg(id))[count(id)] AS root_id,
              count(id) <> 1             AS is_reply
       FROM posts_with_replies
