@@ -23,22 +23,22 @@
                                :author login
                                :name (or display-name login)
                                :parent (:parent message))))]
-          (db/get-timeline-post {:post     post-id
+          (db/get-timeline {:post     post-id
                                  :user     login
                                  :is_boost false}))))))
 
 (defn messages-by-author [author]
-  {:messages (vec (db/get-messages-by-author {:author author}))})
+  {:messages (vec (db/get-messages {:author author}))})
 
 (defn get-post [post-id]
-  (db/get-post {:id post-id}))
+  (first (db/get-posts-with {:id post-id})))
 
 (defn boost-post [login post-id poster]
   (conman/with-transaction [db/*db*]
                            (db/boost-post! db/*db* {:post   post-id
                                                     :poster poster
                                                     :user   login})
-                           (db/get-timeline-post db/*db* {:post     post-id
+                           (db/get-timeline db/*db* {:post     post-id
                                                           :user     login
                                                           :is_boost true})))
 
@@ -46,16 +46,16 @@
   {:messages (vec (db/get-timeline))})
 
 (defn timeline-for-poster [poster]
-  {:messages (vec (db/get-timeline-for-poster {:poster poster}))})
+  {:messages (vec (db/get-timeline {:poster poster}))})
 
-(defn get-replies [id]
-  (db/get-replies {:id id}))
+(defn get-replies [parent-id]
+  (db/get-posts-with {:parent parent-id}))
 
 (defn get-parents [id]
-  (db/get-parents {:id id}))
+  (db/get-posts-with {:child id}))
 
 (defn get-feed-for-tag [tag]
-  {:messages (db/get-feed-for-tag {:tag tag})})
+  {:messages (db/get-feed {:tags [tag]})})
 
 (defn get-feed [feed-map]
   (when-not (every? #(re-matches #"[-\w]+" %) (:tags feed-map))

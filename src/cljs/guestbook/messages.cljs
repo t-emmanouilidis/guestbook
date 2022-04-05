@@ -65,7 +65,7 @@
        "Loading messages from server"
        "Refresh messages")]))
 
-(defn post-meta [{:keys [id is_boost timestamp posted_at poster poster_avatar source source_avatar] :as m}]
+(defn post-meta [{:keys [id is_boost timestamp posted_at poster poster_avatar source source_avatar]}]
   (let [posted_at (or posted_at timestamp)]
     [:<>
      (when is_boost
@@ -78,8 +78,7 @@
         [:div.column.is-narrow.pb-0
          [image (or source_avatar "/img/avatar_default.png") 24 24]]
         [:div.column.pb-0 #_{:style {:text-align "left"}}
-         [:div.column.is-narrow.pb-0
-          [:a {:href (str "/user/" source "?post-id=" id)} source]]]])
+         [:a {:href (str "/user/" source "?post-id=" id)} source]]])
      [:div.mb-4>time
       (if posted_at
         (.toLocaleString posted_at)
@@ -138,12 +137,9 @@
 
 (defn message
   ([m] [message m {}])
-  ([{:keys [id timestamp messages name author avatar boosts is_boost reply_count]
-     :or   {boosts 0}
-     :as   m}
-    {:keys [include-link? include-bar?]
-     :or   {include-link? true
-            include-bar?  true}}]
+  ([{:keys [avatar boosts] :or {boosts 0} :as m}
+    {:keys [include-link? include-bar?] :or {include-link? true
+                                             include-bar?  true}}]
    [:article.media
     [:figure.media-left
      [image (or avatar "/img/avatar_default.png") 128 128]]
@@ -168,6 +164,7 @@
          (.scrollIntoView (dom/dom-node this))))
      :reagent-render
      (fn [_]
+       (.log js/console (str "Rendering message with id: " (:id m) " and boosts: " (:boosts m)))
        [:li
         [message m]])}))
 
@@ -175,9 +172,10 @@
   ([] [message-list nil])
   ([message-id]
    [:ul.messages
-    (for [m @(rf/subscribe [:messages/list])]
-      ^{:key (:timestamp m)}
-      [msg-li m message-id])]))
+    (let [msgs @(rf/subscribe [:messages/list])]
+      (for [m msgs]
+        ^{:key (:posted_at m)}
+        [msg-li m message-id]))]))
 
 (defn message-list-placeholder []
   [:ul.messages
@@ -203,16 +201,16 @@
   :messages/add
   (fn [db [_ message]]
     (let [msg-filter (:messages/filter db)
-          filters (if (map? msg-filter)
+          filters (cond
+                    (map? msg-filter)
                     [msg-filter]
+                    (nil? msg-filter)
+                    [message]
+                    :else
                     msg-filter)]
-      (if (or (nil? filters) (some #(add-message? % message) filters))
-        (do
-          (.log js/console (str "Message arrived here: " message))
-          (update db :messages/list conj message))
-        (do
-          (.log js/console (str "Message not added and arrived here: " message))
-          db)))))
+      (if (some #(add-message? % message) filters)
+        (update db :messages/list conj message)
+        db))))
 
 (rf/reg-event-db
   :form/set-field
@@ -334,7 +332,7 @@
 (rf/reg-event-db
   :message/save-media
   (fn [db [_ img]]
-    (let [url (.createObjectURL js/URL img)
+    (let [url (js/URL.createObjectURL img)
           ;; create a random name instead of the user name that we had for the avatar
           name (keyword (str "msg-" (random-uuid)))]
       (-> db

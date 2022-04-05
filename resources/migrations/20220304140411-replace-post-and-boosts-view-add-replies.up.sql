@@ -1,8 +1,8 @@
-CREATE OR REPLACE VIEW reply_count as
-select p.id as id, count(c.id) as reply_count
-from posts p
-         left join posts c on c.parent = p.id
-group by p.id;
+CREATE OR REPLACE VIEW reply_count AS
+SELECT p.id AS id, count(c.id) AS reply_count
+FROM posts p
+         LEFT JOIN posts c ON c.parent = p.id
+GROUP BY p.id;
 --;;
 
 CREATE OR REPLACE VIEW posts_with_replies as

@@ -1,13 +1,121 @@
+-- :name get-messages :? :*
+-- :doc returns all available messages
+SELECT pwm.id,
+       pwm.name,
+       pwm.message,
+       pwm.author,
+       pwm.timestamp,
+       pwm.avatar,
+       pwm.boosts
+FROM posts_with_meta AS pwm
+WHERE
+--~ (if (contains? params :author) " pwm.author = :author;" " TRUE;")
+
+-- :name get-timeline :? :*
+-- :doc Gets the latest post or boost for each post
+SELECT t.root_id,
+       t.id,
+       t.name,
+       t.message,
+       t.author,
+       t.timestamp,
+       t.avatar,
+       t.is_reply,
+       t.reply_count,
+       t.is_boost,
+       t.boosts,
+       t.posted_at,
+       t.source,
+       t.source_avatar,
+       t.poster,
+       t.poster_avatar,
+       t.messages
+FROM (SELECT DISTINCT ON (p.id) *
+      FROM posts_and_boosts p
+      WHERE
+--~ (if (contains? params :poster) " p.poster = :poster " " TRUE ")
+--~ (if (and (contains? params :is_boost) (contains? params :user) (contains? params :post)) " AND p.is_boost = :is_boost AND p.poster = :user AND p.id = :post " " AND TRUE ")
+      ORDER BY p.id, p.posted_at DESC
+--~ (when (contains? params :post) " LIMIT 1 ")
+     ) AS t
+ORDER BY t.posted_at ASC;
+
+-- :name get-posts-with :? :*
+-- :doc returns a specific post
+SELECT pwm.id,
+       pwm.author,
+       pwm.name,
+       pwm.message,
+       pwm.avatar,
+       pwm.boosts,
+       pwm.timestamp,
+       p.parent,
+       r.reply_count
+FROM posts_with_meta pwm
+         INNER JOIN (select id, parent from posts) as p using (id)
+         INNER JOIN reply_count AS r USING (id)
+WHERE
+--~ (if (contains? params :id) " pwm.id = :id " " TRUE ")
+--~ (if (contains? params :parent) " AND pwm.id IN (SELECT p2.id FROM posts p2 WHERE p2.parent = :parent) " " AND TRUE ")
+/*~ (if (contains? params :child) */
+  AND pwm.id IN (WITH RECURSIVE parents AS (
+    SELECT p2.id, p2.parent
+    FROM posts AS p2
+    WHERE p2.id = :child
+    UNION
+    SELECT p3.id, p3.parent
+    FROM posts AS p3
+    INNER JOIN parents pp ON p3.id = pp.parent)
+    SELECT p4.id
+    FROM parents AS p4)
+/*~*/
+  AND TRUE
+/*~ ) ~*/
+
+-- :name get-feed :? :*
+-- :require [guestbook.db.util :refer [tags-regex]]
+-- :doc given a vector of follows and a vector of tags, return a feed
+SELECT t.root_id,
+       t.id,
+       t.name,
+       t.message,
+       t.author,
+       t.timestamp,
+       t.avatar,
+       t.is_reply,
+       t.reply_count,
+       t.is_boost,
+       t.boosts,
+       t.posted_at,
+       t.source,
+       t.source_avatar,
+       t.poster,
+       t.poster_avatar,
+       t.messages
+FROM (
+         SELECT DISTINCT ON (p.id) *
+         FROM posts_and_boosts p
+         WHERE
+/*~ (if (seq (:follows params)) */
+             p.poster IN (:v * :follows)
+/*~*/
+             false
+/*~ ) ~*/
+OR
+/*~ (if (seq (:tags params)) */
+p.message ~*
+/*~*/
+false
+/*~ ) ~*/
+--~ (when (seq (:tags params)) (tags-regex (:tags params)))
+         ORDER BY p.id, posted_at DESC) AS t
+ORDER BY t.posted_at ASC;
+
 -- :name save-message! :<! :1
 -- :doc creates a new message using the name and message keys
 INSERT INTO posts(author, name, message, parent)
 VALUES (:author, :name, :message, :parent)
 RETURNING *;
-
--- :name get-messages :? :*
--- :doc returns all available messages
-SELECT *
-FROM posts_with_meta;
 
 -- :name create-user!* :! :n
 -- :doc creates a new user with the provided login and hashed password
@@ -16,15 +124,9 @@ VALUES (:login, :password);
 
 -- :name get-user-for-auth* :? :1
 -- :doc selects a user for authentication
-SELECT *
-FROM users
-WHERE login = :login;
-
--- :name get-messages-by-author :? :*
--- :doc returns all messages by given author
-SELECT *
-FROM posts_with_meta
-WHERE author = :author;
+SELECT u.login, u.password, u.created_at, u.profile
+FROM users AS u
+WHERE u.login = :login;
 
 -- :name set-profile-for-user* :<! :1
 -- :doc sets a profile map for the specified user
@@ -35,9 +137,9 @@ RETURNING *;
 
 -- :name get-user* :? :1
 -- :doc gets a user's publicly available information
-SELECT login, created_at, profile
-FROM users
-WHERE login = :login;
+SELECT u.login, u.created_at, u.profile
+FROM users AS u
+WHERE u.login = :login;
 
 -- :name save-file! :! :n
 -- :doc saves a file to the database
@@ -50,9 +152,9 @@ WHERE media.owner = :owner;
 
 -- :name get-file :? :1
 -- :doc gets a file from the database
-select *
-from media
-where media.name = :name;
+SELECT m.name, m.owner, m.type, m.data
+FROM media AS m
+WHERE m.name = :name;
 
 -- :name set-password-for-user!* :! :n
 -- :doc updates the password for a user
@@ -66,12 +168,6 @@ DELETE
 from users
 where login = :login;
 
--- :name get-post :? :1
--- :doc returns a post
-SELECT *
-FROM posts_with_meta
-WHERE id = :id;
-
 -- :name boost-post! :! :n
 -- :doc Boosts a post, or moves a boost to the top of the user's timeline
 INSERT INTO boosts(user_id, post_id, poster)
@@ -83,7 +179,7 @@ WHERE boosts.user_id = :user
 
 -- :name boosters-of-post :? :*
 -- :doc Get all boosters for a post
-SELECT user_id as "user"
+SELECT user_id AS "user"
 FROM boosts
 WHERE post_id = :post;
 
@@ -101,9 +197,9 @@ WITH RECURSIVE reboosts AS (
     UNION
     SELECT b.user_id, b.poster
     FROM post_boosts b
-    -- we start from the given user_id and we recursively search the boosts table for this post
-    -- to get the next record where the initial user_id is the poster of the next row
-    -- i.e. we move down the tree
+             -- we start from the given user_id and we recursively search the boosts table for this post
+             -- to get the next record where the initial user_id is the poster of the next row
+             -- i.e. we move down the tree
              INNER JOIN reboosts r ON r.user_id = b.poster)
 SELECT user_id AS "user", poster as source
 FROM reboosts;
@@ -122,103 +218,10 @@ WITH RECURSIVE reboosts AS (
     UNION
     SELECT b.user_id, b.poster
     FROM post_boosts b
-    -- the result of the non-recursive term (:user_id and :post from boosts) is joined with the post_boosts
-    -- where the user_id of the post_boosts need to be the same with the poster of the temporary table
-    -- i.e. we move up the tree.
+             -- the result of the non-recursive term (:user_id and :post from boosts) is joined with the post_boosts
+             -- where the user_id of the post_boosts need to be the same with the poster of the temporary table
+             -- i.e. we move up the tree.
              INNER JOIN reboosts r ON r.poster = b.user_id
 )
 SELECT user_id AS "user", poster as source
 FROM reboosts;
-
--- :name get-timeline :? :*
--- :doc Gets the latest post or boost for each post
-SELECT DISTINCT ON (p.id) *
-FROM posts_and_boosts p
-ORDER BY p.id, p.posted_at DESC;
-
--- :name get-timeline-for-poster :? :*
--- :doc Gets the latest post or boost for each post for a specific poster
-SELECT DISTINCT ON (p.id) *
-FROM posts_and_boosts p
-WHERE p.poster = :poster
-ORDER BY p.id, p.posted_at DESC;
-
--- :name get-timeline-post :? :1
--- :doc Gets the boosted post for updating timelines
-SELECT *
-FROM posts_and_boosts p
-WHERE p.is_boost = :is_boost
-  AND poster = :user
-  AND id = :post
-ORDER BY posted_at
-limit 1;
-
--- :name get-post :? :1
--- :doc returns a specific post
-SELECT *
-FROM posts_with_meta
-         INNER JOIN (select id, parent from posts) as p using (id)
-         INNER JOIN reply_count using (id)
-WHERE id = :id;
-
--- :name get-replies :? :*
--- :doc returns all the replies for a specific post
-select *
-from posts_with_meta
-         inner join (select id, parent from posts) as p using (id)
-         inner join reply_count using (id)
-where id IN (select id
-             from posts
-             where parent = :id);
-
--- :name get-parents :? :*
--- :doc returns the parents of a reply/post
-SELECT *
-from posts_with_meta
-         inner join (select id, parent from posts) as p using (id)
-         inner join reply_count using (id)
-where id in (with recursive parents as (
-    select id, parent
-    from posts
-    where id = :id
-    UNION
-    select p.id, p.parent
-    from posts p
-             inner join parents pp
-                        on p.id = pp.parent)
-             select id
-             from parents);
-
--- :name get-feed-for-tag :? :*
--- :require [guestbook.db.util :refer [tag-regex]]
--- :doc given a tag return its feed
-select distinct on (p.id) *
-from posts_and_boosts as p
-where
-/*~ (if (:tag params) */
-p.message ~*
-/*~*/
-false
-/*~ ) ~*/
---~ (when (:tag params) (tag-regex (:tag params)))
-order by p.id, posted_at desc;
-
--- :name get-feed :? :*
--- :require [guestbook.db.util :refer [tags-regex]]
--- :doc given a vector of follows and a vector of tags, return a feed
-select distinct on (p.id) *
-from posts_and_boosts p
-where
-/*~ (if (seq (:follows params)) */
-p.poster in (:v*:follows)
-/*~*/
-false
-/*~ ) ~*/
-or
-/*~ (if (seq (:tags params)) */
-p.message ~*
-/*~*/
-false
-/*~ ) ~*/
---~ (when (seq (:tags params)) (tags-regex (:tags params)))
-order by p.id asc, posted_at desc;
