@@ -29,8 +29,7 @@
   [{:keys [?data session]}]
   (let [response (try
                    (-> (:identity session)
-                       (msg/save-message!,,, ?data)
-                       (assoc,,, :timestamp (java.util.Date.)))
+                       (msg/save-message!,,, ?data))
                    (catch Exception e
                      (let [{id     :guestbook/error-id
                             errors :errors} (ex-data e)]
@@ -49,7 +48,6 @@
 
 (defmethod handle-message :message/boost!
   [{:keys [?data session]}]
-  (log/debug "Boost data: " ?data)
   (let [response (try
                    (msg/boost-post (:login (:identity session)) (:id ?data) (:poster ?data))
                    (catch Exception e
@@ -74,7 +72,7 @@
     ;; ELSE
     (let [reply-fn (or ?reply-fn (fn [_]))
           session (session/read-session ring-req)
-          message (-> message (assoc :session session))]
+          message (assoc message :session session)]
       (log/debug "Got a message with ID: " id)
       (if (authorized? auth/roles message)
         (when-some [response (handle-message message)]

@@ -40,8 +40,7 @@
                  [com.taoensso/sente "1.16.0"]
                  [org.postgresql/postgresql "42.2.18"]
                  [buddy "2.0.0"]
-                 [metosin/jsonista "0.3.0"]
-                 [markdown-clj "1.10.5"]]
+                 [metosin/jsonista "0.3.0"]]
 
   :min-lein-version "2.0.0"
   :source-paths ["src/clj" "src/cljc" "src/cljs"]

@@ -12,7 +12,7 @@
  (fn [{:keys [db]} _]
    {:db       (assoc db :session/loading? true)
     :ajax/get {:url           "/api/session"
-               :success-path  [:session]
+               :success-path  :session
                :success-event [:session/set]}}))
 
 (rf/reg-event-db

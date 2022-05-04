@@ -1,15 +1,15 @@
 (ns guestbook.views.tag
   (:require
-    [re-frame.core :as rf]
     [guestbook.messages :as messages]
-    [guestbook.subscriptions :as sub]))
+    [guestbook.subscriptions :as sub]
+    [re-frame.core :as rf]))
 
 (def tag-controllers
   [{:parameters {:path [:tag]}
     :start      (fn [{{:keys [tag]} :path}]
-                  (rf/dispatch [:messages/load-by-tag tag]))}])
+                  (rf/dispatch [:messages/load-by-tag tag messages/default-page-size 0]))}])
 
-(defn tag [{{{:keys [tag]}  :path
+(defn tag [{{{:keys [tag]}     :path
              {:keys [post_id]} :query} :parameters}]
   [:div.content
    [:div.columns.is-centered>div.column.is-two-thirds

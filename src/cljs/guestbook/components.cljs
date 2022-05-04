@@ -91,8 +91,7 @@
        #_#"(?<=\s|^)#([-\w]+)(?=\s|$)"
        #"(\s|^)#([-\w]+)(?=\s|$)"
        "$1<a href=\"/tag/$2\"
-          title=\"View posts tagged #$2\"
-          target=\"_blank\">
+          title=\"View posts tagged #$2\">
          #$2
        </a>")
      state]))
@@ -106,8 +105,7 @@
        #_#"@([-\w]+)(?=\s|$)"
        #"(\s|^)@([-\w]+)(?=\s|$)"
        "$1<a href=\"/user/$2\"
-          title=\"Homepage of @$2\"
-          target=\"_blank\">
+          title=\"Homepage of @$2\">
          @$2
        </a>")
      state]))

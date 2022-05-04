@@ -13,7 +13,7 @@
   (fn [{:keys [db]} [_ post-id]]
     {:db       (clear-post-keys db)
      :ajax/get {:url           (str "/api/message/" post-id)
-                :success-path  [:message]
+                :success-path  :message
                 :success-event [:post/set]
                 :error-event   [:post/set-error]}}))
 
@@ -54,7 +54,7 @@
   (fn [{:keys [db]} [_ post-id]]
     {:db       (assoc-in db [::replies-status post-id] :loading)
      :ajax/get {:url           (str "/api/message/" post-id "/replies")
-                :success-path  [:replies]
+                :success-path  :replies
                 :success-event [:post/replies-add post-id]
                 :error-event   [:post/replies-error post-id]}}))
 
@@ -171,7 +171,7 @@
   ::fetch-parents
   (fn [_ [_ post-id]]
     {:ajax/get {:url           (str "/api/message/" post-id "/parents")
-                :success-path  [:parents]
+                :success-path  :parents
                 :success-event [::add-parents post-id]}}))
 
 (rf/reg-event-db

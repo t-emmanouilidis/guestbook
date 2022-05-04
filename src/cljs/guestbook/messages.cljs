@@ -1,41 +1,46 @@
 (ns guestbook.messages
-  (:require [re-frame.core :as rf]
+  (:require [clojure.string :as string]
+            [guestbook.components :refer [image image-uploader md text-input textarea-input]]
+            [guestbook.modals :as modals]
+            [guestbook.validation :refer [validate-message]]
+            [re-frame.core :as rf]
             [reagent.core :as r]
             [reagent.dom :as dom]
-            [clojure.string :as string]
-            [guestbook.validation :refer [validate-message]]
-            [guestbook.components :refer [text-input textarea-input image md image-uploader]]
-            [reitit.frontend.easy :as rtfe]
-            [guestbook.modals :as modals]))
+            [reitit.frontend.easy :as rtfe]))
+
+(def default-page-size 5)
 
 (rf/reg-event-fx
   :messages/load-by-author
-  (fn [{:keys [db]} [_ author]]
+  (fn [{:keys [db]} [_ author page-size page-start]]
     {:db       (assoc db
                  :messages/loading? true
                  :messages/list nil
                  :messages/filter {:poster author})
-     :ajax/get {:url           (str "/api/messages/by/" author)
-                :success-path  [:messages]
-                :success-event [:messages/set]}}))
+     :ajax/get {:url           (str "/api/messages/by/" author "?page-size=" page-size "&page-start=" page-start)
+                :success-path  [:messages :count]
+                :success-event [:messages/set page-start]}}))
 
 (rf/reg-event-fx
   :messages/load
-  (fn [{:keys [db]} _]
+  (fn [{:keys [db]} [_ page-size page-start]]
     {:db       (assoc db
                  :messages/loading? true
-                 :messages/list nil
+                 :messages/list (if (> page-start 0) (:messages/list db) nil)
+                 :messages/start page-start
                  :messages/filter nil)
-     :ajax/get {:url           "/api/messages"
-                :success-path  [:messages]
-                :success-event [:messages/set]}}))
+     :ajax/get {:url           (str "/api/messages?page-size=" page-size "&page-start=" page-start)
+                :success-path  [:messages :count]
+                :success-event [:messages/set page-start]}}))
 
 (rf/reg-event-db
   :messages/set
-  (fn [db [_ messages]]
-    (-> db
-        (assoc :messages/loading? false
-               :messages/list messages))))
+  (fn [db [_ page-start messages count]]
+    (let [messages (if (> page-start 0) (into (:messages/list db) messages) messages)]
+      (assoc db :messages/loading? false
+                :messages/page-start page-start
+                :messages/list messages
+                :messages/count count))))
 
 (rf/reg-sub
   :messages/loading?
@@ -43,8 +48,24 @@
     (:messages/loading? db)))
 
 (rf/reg-sub
-  :messages/list
+  :messages/page-start
   (fn [db _]
+    (:messages/page-start db)))
+
+(rf/reg-sub
+  :messages/count
+  (fn [db _]
+    (:messages/count db)))
+
+(rf/reg-sub
+  :messages/all
+  (fn [db _]
+    (:messages/list db [])))
+
+(rf/reg-sub
+  :messages/list
+  :<- [:messages/all]
+  (fn [messages _]
     (:list
       (reduce
         (fn [{:keys [ids list] :as acc} {:keys [id] :as msg}]
@@ -54,16 +75,29 @@
              :ids  (conj ids id)}))
         {:list []
          :ids  #{}}
-        (:messages/list db [])))))
+        messages))))
 
 (defn reload-messages-button []
   (let [loading? (rf/subscribe [:messages/loading?])]
     [:button.button.is-info.is-fullwidth
-     {:on-click #(rf/dispatch [:messages/load])
+     {:on-click #(rf/dispatch [:messages/load default-page-size 0])
       :disabled @loading?}
      (if @loading?
        "Loading messages from server"
        "Refresh messages")]))
+
+(defn load-more-button []
+  (let [loading? @(rf/subscribe [:messages/loading?])
+        page-start @(rf/subscribe [:messages/page-start])
+        message-count @(rf/subscribe [:messages/count])
+        new-page-start (+ page-start default-page-size)]
+    (when (> message-count (+ page-start default-page-size))
+      [:button.button.is-info.is-fullwidth
+       {:on-click #(rf/dispatch [:messages/load default-page-size new-page-start])
+        :disabled loading?}
+       (if loading?
+         "Loading messages from server"
+         "Load more messages")])))
 
 (defn post-meta [{:keys [id is_boost timestamp posted_at poster poster_avatar source source_avatar]}]
   (let [posted_at (or posted_at timestamp)]
@@ -169,13 +203,12 @@
         [message m]])}))
 
 (defn message-list
-  ([] [message-list nil])
+  ([] (message-list nil))
   ([message-id]
    [:ul.messages
-    (let [msgs @(rf/subscribe [:messages/list])]
-      (for [m msgs]
-        ^{:key (:posted_at m)}
-        [msg-li m message-id]))]))
+    (for [m @(rf/subscribe [:messages/list])]
+      ^{:key (:id m)}
+      [msg-li m message-id])]))
 
 (defn message-list-placeholder []
   [:ul.messages
@@ -202,13 +235,11 @@
   (fn [db [_ message]]
     (let [msg-filter (:messages/filter db)
           filters (cond
-                    (map? msg-filter)
-                    [msg-filter]
                     (nil? msg-filter)
-                    [message]
+                    {:matches-all (fn [_] true)}
                     :else
                     msg-filter)]
-      (if (some #(add-message? % message) filters)
+      (if (add-message? filters message)
         (update db :messages/list conj message)
         db))))
 
@@ -353,19 +384,19 @@
 
 (rf/reg-event-fx
   :messages/load-by-tag
-  (fn [{:keys [db]} [_ tag]]
+  (fn [{:keys [db]} [_ tag page-size page-start]]
     {:db       (assoc db
                  :messages/loading? true
                  :messages/filter
                  {:message #(re-find (re-pattern (str "(?<=\\s|^)#" tag "(?=\\s|$)")) %)}
                  :messages/list nil)
-     :ajax/get {:url           (str "/api/messages/tagged/" tag)
-                :success-path  [:messages]
-                :success-event [:messages/set]}}))
+     :ajax/get {:url           (str "/api/messages/tagged/" tag "?page-size=" page-size "&page-start" page-start)
+                :success-path  [:messages :count]
+                :success-event [:messages/set page-start]}}))
 
 (rf/reg-event-fx
   :messages/load-feed
-  (fn [{:keys [db]} _]
+  (fn [{:keys [db]} [_ page-size page-start]]
     (let [{:keys [follows tags]} (get-in db [:auth/user :profile :subscriptions])]
       {:db       (assoc db
                    :messages/loading? true
@@ -374,9 +405,9 @@
                    [{:message
                      #(some (fn [tag] (re-find (re-pattern (str "(?<=\\s|^)#" tag "(?=\\s|$)")) %)) tags)
                      :poster #(some (partial = %) follows)}])
-       :ajax/get {:url           "/api/messages/feed"
-                  :success-path  [:messages]
-                  :success-event [:messages/set]}})))
+       :ajax/get {:url           (str "/api/messages/feed?page-size=" page-size "&page-start=" page-start)
+                  :success-path  [:messages :count]
+                  :success-event [:messages/set page-start]}})))
 
 (defn errors-component [id & [message]]
   (when-let [error @(rf/subscribe [:form/error id])]

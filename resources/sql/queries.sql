@@ -1,15 +1,72 @@
--- :name get-messages :? :*
--- :doc returns all available messages
+-- :name count-posts-with :? :1
+-- :doc returns the number of posts that match the criteria
+SELECT count(pwm.id)
+FROM posts_with_meta pwm
+         INNER JOIN (select id, parent from posts) as p using (id)
+         INNER JOIN reply_count AS r USING (id)
+WHERE
+--~ (if (contains? params :author) " pwm.author = :author " " TRUE ")
+--~ (if (contains? params :id) " AND pwm.id = :id " " AND TRUE ")
+--~ (if (contains? params :parent) " AND pwm.id IN (SELECT p2.id FROM posts p2 WHERE p2.parent = :parent) " " AND TRUE ")
+/*~ (if (contains? params :child) */
+  AND pwm.id IN (WITH RECURSIVE parents AS (
+    SELECT p2.id, p2.parent
+    FROM posts AS p2
+    WHERE p2.id = :child
+    UNION
+    SELECT p3.id, p3.parent
+    FROM posts AS p3
+    INNER JOIN parents pp ON p3.id = pp.parent)
+    SELECT p4.id
+    FROM parents AS p4)
+/*~*/
+  AND TRUE
+/*~ ) ~*/
+
+-- :name get-posts-with :? :*
+-- :doc returns a specific post
 SELECT pwm.id,
        pwm.name,
        pwm.message,
        pwm.author,
        pwm.timestamp,
        pwm.avatar,
-       pwm.boosts
-FROM posts_with_meta AS pwm
+       pwm.boosts,
+       p.parent,
+       r.reply_count
+FROM posts_with_meta pwm
+         INNER JOIN (select id, parent from posts) as p using (id)
+         INNER JOIN reply_count AS r USING (id)
 WHERE
---~ (if (contains? params :author) " pwm.author = :author;" " TRUE;")
+--~ (if (contains? params :author) " pwm.author = :author " " TRUE ")
+--~ (if (contains? params :id) " AND pwm.id = :id " " AND TRUE ")
+--~ (if (contains? params :parent) " AND pwm.id IN (SELECT p2.id FROM posts p2 WHERE p2.parent = :parent) " " AND TRUE ")
+/*~ (if (contains? params :child) */
+  AND pwm.id IN (WITH RECURSIVE parents AS (
+    SELECT p2.id, p2.parent
+    FROM posts AS p2
+    WHERE p2.id = :child
+    UNION
+    SELECT p3.id, p3.parent
+    FROM posts AS p3
+    INNER JOIN parents pp ON p3.id = pp.parent)
+    SELECT p4.id
+    FROM parents AS p4)
+/*~*/
+  AND TRUE
+/*~ ) ~*/
+ORDER BY pwm.timestamp DESC
+--~ (when (and (contains? params :limit) (contains? params :offset)) " LIMIT :limit OFFSET :offset ")
+
+-- :name count-timeline-messages :? :1
+-- :doc return the total number of messages in timeline
+SELECT COUNT(t.id)
+FROM (SELECT DISTINCT ON (p.id) *
+      FROM posts_and_boosts p
+      WHERE
+--~ (if (contains? params :poster) " p.poster = :poster " " TRUE ")
+--~ (if (and (contains? params :is_boost) (contains? params :user) (contains? params :post)) " AND p.is_boost = :is_boost AND p.poster = :user AND p.id = :post " " AND TRUE ")
+     ) AS t
 
 -- :name get-timeline :? :*
 -- :doc Gets the latest post or boost for each post
@@ -38,39 +95,31 @@ FROM (SELECT DISTINCT ON (p.id) *
       ORDER BY p.id, p.posted_at DESC
 --~ (when (contains? params :post) " LIMIT 1 ")
      ) AS t
-ORDER BY t.posted_at ASC;
+ORDER BY t.posted_at DESC
+--~ (when (and (contains? params :limit) (contains? params :offset)) " LIMIT :limit OFFSET :offset ")
 
--- :name get-posts-with :? :*
--- :doc returns a specific post
-SELECT pwm.id,
-       pwm.author,
-       pwm.name,
-       pwm.message,
-       pwm.avatar,
-       pwm.boosts,
-       pwm.timestamp,
-       p.parent,
-       r.reply_count
-FROM posts_with_meta pwm
-         INNER JOIN (select id, parent from posts) as p using (id)
-         INNER JOIN reply_count AS r USING (id)
-WHERE
---~ (if (contains? params :id) " pwm.id = :id " " TRUE ")
---~ (if (contains? params :parent) " AND pwm.id IN (SELECT p2.id FROM posts p2 WHERE p2.parent = :parent) " " AND TRUE ")
-/*~ (if (contains? params :child) */
-  AND pwm.id IN (WITH RECURSIVE parents AS (
-    SELECT p2.id, p2.parent
-    FROM posts AS p2
-    WHERE p2.id = :child
-    UNION
-    SELECT p3.id, p3.parent
-    FROM posts AS p3
-    INNER JOIN parents pp ON p3.id = pp.parent)
-    SELECT p4.id
-    FROM parents AS p4)
+-- :name count-feed-messages :? :1
+-- :require [guestbook.db.util :refer [tags-regex]]
+-- :doc given a vector of follows and a vector of tags, count the messages that match
+SELECT COUNT(t.id)
+FROM (
+         SELECT DISTINCT ON (p.id) *
+         FROM posts_and_boosts p
+         WHERE
+/*~ (if (seq (:follows params)) */
+                 p.poster IN (:v*:follows)
 /*~*/
-  AND TRUE
+             false
 /*~ ) ~*/
+OR
+/*~ (if (seq (:tags params)) */
+p.message ~*
+/*~*/
+false
+/*~ ) ~*/
+--~ (when (seq (:tags params)) (tags-regex (:tags params)))
+ORDER BY p.id, posted_at DESC) AS t
+
 
 -- :name get-feed :? :*
 -- :require [guestbook.db.util :refer [tags-regex]]
@@ -97,7 +146,7 @@ FROM (
          FROM posts_and_boosts p
          WHERE
 /*~ (if (seq (:follows params)) */
-             p.poster IN (:v * :follows)
+             p.poster IN (:v*:follows)
 /*~*/
              false
 /*~ ) ~*/
@@ -109,7 +158,8 @@ false
 /*~ ) ~*/
 --~ (when (seq (:tags params)) (tags-regex (:tags params)))
          ORDER BY p.id, posted_at DESC) AS t
-ORDER BY t.posted_at ASC;
+ORDER BY t.posted_at DESC
+--~ (when (and (contains? params :limit) (contains? params :offset)) " LIMIT :limit OFFSET :offset ")
 
 -- :name save-message! :<! :1
 -- :doc creates a new message using the name and message keys

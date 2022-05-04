@@ -4,7 +4,7 @@
             [guestbook.auth :as auth]))
 
 (def home-controllers
-  [{:start (fn [_] (rf/dispatch [:messages/load]))}])
+  [{:start (fn [_] (rf/dispatch [:messages/load msg/default-page-size 0]))}])
 
 (defn home [{{{post-id :post-id} :query} :parameters}]
   (fn []
@@ -13,7 +13,9 @@
       [:h3 "Messages"]
       (if @(rf/subscribe [:messages/loading?])
         [msg/message-list-placeholder]
-        [msg/message-list post-id])]
+        [:<>
+         [msg/message-list post-id]
+         [msg/load-more-button]])]
      [:div.columns>div.column
       [msg/reload-messages-button]]
      [:div.columns>div.column

@@ -1,28 +1,30 @@
 (ns guestbook.routes.services
-  (:require [guestbook.messages :as msg]
-            [guestbook.middleware :as middleware]
+  (:require [clojure.java.io :as io]
+            [clojure.spec.alpha :as s]
+            [clojure.string :as string]
+            [clojure.tools.logging :as log]
+            [guestbook.auth :as auth]
+            [guestbook.auth.ring :as gauth]
+            [guestbook.author :as author]
             [guestbook.db.core :as db]
-            [ring.util.http-response :as response]
-            [reitit.swagger :as swagger]
-            [reitit.swagger-ui :as swagger-ui]
-            [reitit.ring.coercion :as coercion]
+            [guestbook.media :as media]
+            [guestbook.messages :as msg]
+            [guestbook.middleware.formats :as formats]
+            [guestbook.session :as session]
             [reitit.coercion.spec :as spec-coercion]
+            [reitit.ring.coercion :as coercion]
             [reitit.ring.middleware.exception :as exception]
             [reitit.ring.middleware.multipart :as multipart]
-            [reitit.ring.middleware.parameters :as parameters]
             [reitit.ring.middleware.muuntaja :as muuntaja]
-            [guestbook.middleware.formats :as formats]
-            [guestbook.auth :as auth]
-            [spec-tools.data-spec :as ds]
-            [guestbook.author :as author]
-            [clojure.tools.logging :as log]
-            [guestbook.auth.ring :as gauth]
-            [guestbook.session :as session]
-            [clojure.java.io :as io]
-            [guestbook.media :as media]
-            [clojure.spec.alpha :as s]
-            [clojure.string :as string])
+            [reitit.ring.middleware.parameters :as parameters]
+            [reitit.swagger :as swagger]
+            [reitit.swagger-ui :as swagger-ui]
+            [ring.util.http-response :as response]
+            [spec-tools.data-spec :as ds])
   (:import (clojure.lang ExceptionInfo)))
+
+(def default-page-start 0)
+(def default-page-size 5)
 
 (defn service-routes []
   ["/api"
@@ -44,19 +46,28 @@
     ["/swagger-ui*" {:get (swagger-ui/create-swagger-ui-handler {:url "/api/swagger.json"})}]]
    ["/messages"
     {::auth/roles (auth/roles :messages/list)
-     :parameters  {:query {(ds/opt :boosts) boolean?}}}
+     :parameters  {:query {(ds/opt :boosts)     boolean?
+                           (ds/opt :page-size)  int?
+                           (ds/opt :page-start) int?}}}
     [""
      {:get
       {:responses
        {200
         {:body
-         {:messages
-          [msg/post?]}}}
+         {:count int?
+          :messages    [msg/post?]}}}
        :handler
-       (fn [{{{:keys [boosts] :or {boosts true}} :query} :parameters}]
+       (fn [{{{:keys [boosts page-size page-start]
+               :or   {boosts     true
+                      page-size  default-page-size
+                      page-start default-page-start}} :query} :parameters}]
          (response/ok (if boosts
-                        (msg/timeline)
-                        (msg/message-list))))}}]
+                        (merge
+                          (msg/timeline-message-count)
+                          (msg/timeline page-size page-start))
+                        (merge
+                          (msg/message-count)
+                          (msg/message-list page-size page-start)))))}}]
     ["/by/:author"
      {::auth/roles (auth/roles :messages/list)
       :get
@@ -67,27 +78,31 @@
          {:messages
           [msg/post?]}}}
        :handler
-       (fn [{{{:keys [author]}                   :path
-              {:keys [boosts] :or {boosts true}} :query} :parameters}]
+       (fn [{{{:keys [author]}                        :path
+              {:keys [boosts page-size page-start]
+               :or   {boosts     true
+                      page-size  default-page-size
+                      page-start default-page-start}} :query} :parameters}]
          (response/ok (if boosts
-                        (msg/timeline-for-poster author)
-                        (msg/messages-by-author author))))}}]
+                        (msg/timeline-for-poster author page-size page-start)
+                        (msg/messages-by-author author page-size page-start))))}}]
     ["/tagged/:tag"
      {::auth/roles (auth/roles :messages/list)
       :get
-      {:parameters
-       {:path {:tag string?}}
+      {:parameters {:path {:tag string?}}
        :responses
        {200
         {:body
          {:messages
           [msg/post?]}}}
        :handler
-       (fn [{{{:keys [tag]}                      :path
-              {:keys [boosts] :or {boosts true}} :query} :parameters}]
+       (fn [{{{:keys [tag]}                           :path
+              {:keys [boosts page-size page-start]
+               :or   {boosts     true
+                      page-size  default-page-size
+                      page-start default-page-start}} :query} :parameters}]
          (if boosts
-           (response/ok
-             (msg/get-feed-for-tag tag))
+           (response/ok (msg/get-feed-for-tag tag page-size page-start))
            (response/not-implemented {:message "Tags cannot filter out boosts."})))}}]
     ["/feed"
      {::auth/roles (auth/roles :messages/feed)
@@ -98,10 +113,13 @@
          {:messages
           [msg/post?]}}}
        :handler
-       (fn [{{{:keys [boosts] :or {boosts true}} :query}    :parameters
-             {{{:keys [subscriptions]} :profile} :identity} :session}]
+       (fn [{{{:keys [boosts page-size page-start]
+               :or   {boosts     true
+                      page-size  default-page-size
+                      page-start default-page-start}} :query} :parameters
+             {{{:keys [subscriptions]} :profile} :identity}   :session}]
          (if boosts
-           (response/ok (msg/get-feed subscriptions))
+           (response/ok (msg/get-feed subscriptions page-size page-start))
            (response/not-implemented {:message "Feed cannot filter out boosts."})))}}]]
    ["/message"
     ["/:post-id"
