@@ -19,12 +19,14 @@
 
 (rf/reg-event-db
   :post/set
-  (fn [db [_ post]]
+  [rf/trim-v]
+  (fn [db [post]]
     (assoc db ::post post)))
 
 (rf/reg-event-db
   :post/set-error
-  (fn [db [_ error]]
+  [rf/trim-v]
+  (fn [db [error]]
     (assoc db ::error error)))
 
 (rf/reg-event-db
@@ -60,7 +62,8 @@
 
 (rf/reg-event-db
   :post/replies-add
-  (fn [db [_ post-id replies]]
+  [rf/trim-v]
+  (fn [db [post-id replies]]
     (-> db
         (update,,, ::posts (fnil into {}) (map (juxt :id identity)) replies)
         (assoc-in,,, [::replies post-id] (map :id replies))
@@ -68,7 +71,8 @@
 
 (rf/reg-event-db
   :post/replies-error
-  (fn [db [_ post-id response]]
+  [rf/trim-v]
+  (fn [db [post-id response]]
     (-> db
         (assoc-in [::replies-status post-id] response))))
 
@@ -136,12 +140,14 @@
 
 (rf/reg-event-db
   ::expand-post
-  (fn [db [_ id]]
+  [rf/trim-v]
+  (fn [db [id]]
     (update db ::expanded-posts (fnil conj #{}) id)))
 
 (rf/reg-event-db
   ::collapse-post
-  (fn [db [_ id]]
+  [rf/trim-v]
+  (fn [db [id]]
     (update db ::expanded-posts (fnil disj #{}) id)))
 
 (rf/reg-event-db

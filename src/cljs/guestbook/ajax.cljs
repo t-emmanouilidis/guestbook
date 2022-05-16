@@ -3,6 +3,7 @@
     [ajax.core :refer [GET POST]]
     [re-frame.core :as rf]))
 
+;; effect-handler
 (rf/reg-fx
   :ajax/get
   (fn [{:keys [url success-event error-event success-path]}]

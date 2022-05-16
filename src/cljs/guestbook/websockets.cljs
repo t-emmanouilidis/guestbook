@@ -51,10 +51,8 @@
 (defmethod handle-message :default [{:keys [event]} _] (.warn js/console "Unknown websocket message: " (pr-str event)))
 
 (defn receive-message!
-  [{:keys [id event] :as ws-message}]
-  (do
-    (.log js/console "Event received: " (pr-str event))
-    (handle-message ws-message event)))
+  [{:keys [event] :as ws-message}]
+  (handle-message ws-message event))
 
 (defstate channel-router
           :start (sente/start-chsk-router!

@@ -1,12 +1,14 @@
 (ns guestbook.messages
   (:require [clojure.string :as string]
             [guestbook.components :refer [image image-uploader md text-input textarea-input]]
+            [guestbook.re-frame-utils :refer [<sub >evt]]
             [guestbook.modals :as modals]
             [guestbook.validation :refer [validate-message]]
             [re-frame.core :as rf]
             [reagent.core :as r]
             [reagent.dom :as dom]
-            [reitit.frontend.easy :as rtfe]))
+            [reitit.frontend.easy :as rtfe]
+            [guestbook.ajax]))
 
 (def default-page-size 5)
 
@@ -35,8 +37,11 @@
 
 (rf/reg-event-db
   :messages/set
-  (fn [db [_ page-start messages count]]
-    (let [messages (if (> page-start 0) (into (:messages/list db) messages) messages)]
+  [rf/trim-v]
+  (fn [db [page-start messages count]]
+    (let [messages (if (> page-start 0)
+                     (into (:messages/list db) messages)
+                     messages)]
       (assoc db :messages/loading? false
                 :messages/page-start page-start
                 :messages/list messages
@@ -78,22 +83,22 @@
         messages))))
 
 (defn reload-messages-button []
-  (let [loading? (rf/subscribe [:messages/loading?])]
+  (let [loading? (<sub [:messages/loading?])]
     [:button.button.is-info.is-fullwidth
-     {:on-click #(rf/dispatch [:messages/load default-page-size 0])
-      :disabled @loading?}
-     (if @loading?
+     {:on-click #(>evt [:messages/load default-page-size 0])
+      :disabled loading?}
+     (if loading?
        "Loading messages from server"
        "Refresh messages")]))
 
 (defn load-more-button []
-  (let [loading? @(rf/subscribe [:messages/loading?])
-        page-start @(rf/subscribe [:messages/page-start])
-        message-count @(rf/subscribe [:messages/count])
+  (let [loading? (<sub [:messages/loading?])
+        page-start (<sub [:messages/page-start])
+        message-count (<sub [:messages/count])
         new-page-start (+ page-start default-page-size)]
     (when (> message-count (+ page-start default-page-size))
       [:button.button.is-info.is-fullwidth
-       {:on-click #(rf/dispatch [:messages/load default-page-size new-page-start])
+       {:on-click #(>evt [:messages/load default-page-size new-page-start])
         :disabled loading?}
        (if loading?
          "Loading messages from server"
@@ -149,8 +154,8 @@
 
 (defn boost-button [{:keys [boosts] :as m}]
   [:button.button.level-item.is-rounded.is-small.is-info.is-outlined
-   {:on-click (fn [_] (rf/dispatch [:message/boost! m]))
-    :disabled (nil? @(rf/subscribe [:auth/user]))}
+   {:on-click (fn [_] (>evt [:message/boost! m]))
+    :disabled (nil? (<sub [:auth/user]))}
    "♻️ " boosts])
 
 (declare reply-modal)
@@ -161,9 +166,9 @@
    [reply-modal m]
    [:button.button.is-rounded.is-small.is-outlined.level-item
     {:on-click (fn []
-                 (rf/dispatch [:form/clear])
-                 (rf/dispatch [:app/show-modal [:reply-modal (:id m)]]))
-     :disabled (not= @(rf/subscribe [:auth/user-state]) :authenticated)}
+                 (>evt [:form/clear])
+                 (>evt [:app/show-modal [:reply-modal (:id m)]]))
+     :disabled (not= (<sub [:auth/user-state]) :authenticated)}
     [:span.material-icons
      {:style {:font-size "inherit"}}
      "chat"]
@@ -198,7 +203,6 @@
          (.scrollIntoView (dom/dom-node this))))
      :reagent-render
      (fn [_]
-       (.log js/console (str "Rendering message with id: " (:id m) " and boosts: " (:boosts m)))
        [:li
         [message m]])}))
 
@@ -206,7 +210,7 @@
   ([] (message-list nil))
   ([message-id]
    [:ul.messages
-    (for [m @(rf/subscribe [:messages/list])]
+    (for [m (<sub [:messages/list])]
       ^{:key (:id m)}
       [msg-li m message-id])]))
 
@@ -232,7 +236,8 @@
 
 (rf/reg-event-db
   :messages/add
-  (fn [db [_ message]]
+  [rf/trim-v]
+  (fn [db [message]]
     (let [msg-filter (:messages/filter db)
           filters (cond
                     (nil? msg-filter)
@@ -245,8 +250,8 @@
 
 (rf/reg-event-db
   :form/set-field
-  [(rf/path :form/fields)]
-  (fn [fields [_ id value]]
+  [(rf/path :form/fields) rf/trim-v]
+  (fn [fields [id value]]
     (assoc fields id value)))
 
 (rf/reg-event-fx
@@ -273,8 +278,8 @@
 
 (rf/reg-event-db
   :form/set-server-errors
-  [(rf/path :form/server-errors)]
-  (fn [_ [_ errors]]
+  [(rf/path :form/server-errors) rf/trim-v]
+  (fn [_ [errors]]
     errors))
 
 (rf/reg-sub
@@ -362,7 +367,8 @@
 
 (rf/reg-event-db
   :message/save-media
-  (fn [db [_ img]]
+  [rf/trim-v]
+  (fn [db [img]]
     (let [url (js/URL.createObjectURL img)
           ;; create a random name instead of the user name that we had for the avatar
           name (keyword (str "msg-" (random-uuid)))]
@@ -410,7 +416,7 @@
                   :success-event [:messages/set page-start]}})))
 
 (defn errors-component [id & [message]]
-  (when-let [error @(rf/subscribe [:form/error id])]
+  (when-let [error (<sub [:form/error id])]
     [:div.notification.is-danger (if message
                                    message
                                    (string/join error))]))
@@ -432,9 +438,9 @@
          [message m {:include-link? false}]]])]))
 
 (defn message-form-preview [parent]
-  (let [{:keys [login profile]} @(rf/subscribe [:auth/user])
+  (let [{:keys [login profile]} (<sub [:auth/user])
         display-name (:display-name profile login)
-        msg {:message   @(rf/subscribe [:form/field :message])
+        msg {:message   (<sub [:form/field :message])
              :id        -1
              :timestamp (js/Date.)
              :name      display-name
@@ -444,7 +450,7 @@
      (assoc msg :messages (cons msg (:messages parent)))]))
 
 (defn message-form-content []
-  (let [{:keys [login profile]} @(rf/subscribe [:auth/user])
+  (let [{:keys [login profile]} (<sub [:auth/user])
         display-name (:display-name profile login)]
     [:<>
      [errors-component :server-error]
@@ -455,7 +461,7 @@
      [:div.field
       [:div.control
        [image-uploader
-        #(rf/dispatch [:message/save-media %])
+        #(>evt [:message/save-media %])
         "Insert an image"]]]
      [:div.field
       [:label.label {:for :message} "Message"]
@@ -468,35 +474,33 @@
 (defn reply-modal [parent]
   [modals/modal-card
    {:id       [:reply-modal (:id parent)]
-    :on-close #(rf/dispatch [:form/clear])}
+    :on-close #(>evt [:form/clear])}
    (str "Reply to post by user: " (:author parent))
    [:<>
     [message-form-preview parent]
     [message-form-content]]
    [:input.button.is-primary.is-fullwidth
     {:type     :submit
-     :disabled @(rf/subscribe [:form/validation-errors?])
-     :on-click #(rf/dispatch [:message/send!
-                              (assoc
-                                @(rf/subscribe [:form/fields])
-                                :parent (:id parent))
-                              @(rf/subscribe [:message/media])])
+     :disabled (<sub [:form/validation-errors?])
+     :on-click #(>evt [:message/send!
+                       (assoc
+                         (<sub [:form/fields])
+                         :parent (:id parent))
+                       (<sub [:message/media])])
      :value    (str "Reply to " (:author parent))}]])
 
 (defn message-form []
   [:div.card
    [:div.card-header>p.card-header-title
     "Post Something!"]
-   (let [{:keys [login profile]} @(rf/subscribe [:auth/user])
-         display-name (:display-name profile login)]
-     [:div.card-content
-      [message-form-preview {}]
-      [message-form-content]
-      [:input.button.is-primary
-       {:type     :submit
-        :disabled @(rf/subscribe [:form/validation-errors?])
-        :value    "Comment"
-        :on-click (fn [_]
-                    (rf/dispatch [:message/send!
-                                  @(rf/subscribe [:form/fields])
-                                  @(rf/subscribe [:message/media])]))}]])])
+   [:div.card-content
+    [message-form-preview {}]
+    [message-form-content]
+    [:input.button.is-primary
+     {:type     :submit
+      :disabled (<sub [:form/validation-errors?])
+      :value    "Comment"
+      :on-click (fn [_]
+                  (>evt [:message/send!
+                         (<sub [:form/fields])
+                         (<sub [:message/media])]))}]]])

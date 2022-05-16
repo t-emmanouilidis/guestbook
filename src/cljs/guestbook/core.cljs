@@ -1,19 +1,17 @@
 (ns guestbook.core
-  (:require [reagent.core :as r]
-            [reagent.dom :as dom]
-            [re-frame.core :as rf]
-            [ajax.core :refer [GET POST]]
-            [guestbook.validation :refer [validate-message]]
-            [guestbook.websockets :as ws]
+  (:require [ajax.core :refer [GET POST]]
             [guestbook.auth :as auth]
             [guestbook.messages :as msg]
+            [guestbook.re-frame-utils :refer [<sub >evt]]
             [guestbook.routes.app :refer [app-routes]]
-            [guestbook.ajax :as ajax]
             [mount.core :as mount]
+            [re-frame.core :as rf]
+            [reagent.core :as r]
+            [reagent.dom :as dom]
             [reitit.coercion.spec :as reitit-spec]
             [reitit.frontend :as rtf]
-            [reitit.frontend.easy :as rtfe]
-            [reitit.frontend.controllers :as rtfc]))
+            [reitit.frontend.controllers :as rtfc]
+            [reitit.frontend.easy :as rtfe]))
 
 (rf/reg-event-fx
   :app/initialize
@@ -28,7 +26,8 @@
 
 (rf/reg-event-db
   :router/navigated
-  (fn [db [_ new-match]]
+  [rf/trim-v]
+  (fn [db [new-match]]
     (assoc db :router/current-route new-match)))
 
 (rf/reg-sub
@@ -41,9 +40,9 @@
     router
     (fn [new-match _]
       (when new-match
-        (let [{controllers :controllers} @(rf/subscribe [:router/current-route])
+        (let [{controllers :controllers} (<sub [:router/current-route])
               new-match-with-controllers (assoc new-match :controllers (rtfc/apply-controllers controllers new-match))]
-          (rf/dispatch [:router/navigated new-match-with-controllers]))))
+          (>evt [:router/navigated new-match-with-controllers]))))
     {:use-fragment false}))
 
 (defn navbar []
@@ -64,24 +63,24 @@
          {:class (when @burger-active "is-active")}
          [:div.navbar-start
           [:a.navbar-item {:href "/"} "Home"]
-          (when (= @(rf/subscribe [:auth/user-state]) :authenticated)
+          (when (= (<sub [:auth/user-state]) :authenticated)
             [:<>
              [:a.navbar-item
               {:href (rtfe/href :guestbook.routes.app/author
-                                {:user (:login @(rf/subscribe [:auth/user]))})}
+                                {:user (:login (<sub [:auth/user]))})}
               "My Posts"]
              [:a.navbar-item
               {:href (rtfe/href :guestbook.routes.app/feed)}
               "My Feed"]])]
          [:div.navbar-end
           [:div.navbar-item
-           (case @(rf/subscribe [:auth/user-state])
+           (case (<sub [:auth/user-state])
              :loading
              [:div {:style {:width "5em"}}
               [:progress.progress.is-dark.is-small {:max 100} "30%"]]
              :authenticated
              [:div.buttons
-              [auth/nameplate @(rf/subscribe [:auth/user])]
+              [auth/nameplate (<sub [:auth/user])]
               [auth/logout-button]]
              :anonymous
              [:div.buttons
@@ -90,7 +89,7 @@
 
 (defn home []
   (fn []
-    (if @(rf/subscribe [:messages/loading?])
+    (if (<sub [:messages/loading?])
       [:div>div.row>div.span12>h3 "Loading Messages..."]
       [:div.content>div.columns.is-centered>div.column.is-two-thirds
        [:div.columns>div.column
@@ -99,7 +98,7 @@
        [:div.columns>div.column
         [msg/reload-messages-button]]
        [:div.columns>div.column
-        (case @(rf/subscribe [:auth/user-state])
+        (case (<sub [:auth/user-state])
           :loading
           [:div {:style {:width "5em"}}
            [:progress.progress.is-dark.is-small {:max 100} "30%"]]
@@ -121,7 +120,7 @@
      [:div "No view specified for route: " name " (" path ")"])])
 
 (defn app []
-  (let [current-route @(rf/subscribe [:router/current-route])]
+  (let [current-route (<sub [:router/current-route])]
     [:div.app
      [navbar]
      [page current-route]]))

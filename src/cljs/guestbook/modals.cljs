@@ -1,5 +1,6 @@
 (ns guestbook.modals
   (:require
+    [guestbook.re-frame-utils :refer [<sub >evt]]
     [re-frame.core :as rf]))
 
 (rf/reg-event-db
@@ -31,9 +32,9 @@
         close-modal! (fn []
                        (when (fn? on-close)
                          (on-close id))
-                       (rf/dispatch [:app/hide-modal id]))]
+                       (>evt [:app/hide-modal id]))]
     [:div.modal
-     {:class (when @(rf/subscribe [:app/modal-showing? id]) "is-active")}
+     {:class (when (<sub [:app/modal-showing? id]) "is-active")}
      [:div.modal-background
       {:on-click close-modal!}]
      [:div.modal-card
@@ -51,6 +52,6 @@
    [:div
     [:button.button
      (merge (:button opts)
-            {:on-click #(rf/dispatch [:app/show-modal id])})
+            {:on-click #(>evt [:app/show-modal id])})
      title]
     [modal-card id title body footer]]))
